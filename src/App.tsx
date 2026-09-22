@@ -6,6 +6,7 @@ import ByokModal from './components/ByokModal';
 import McpManager from './components/McpManager';
 import LiveModal from './components/LiveModal';
 import GithubPanel from './components/GithubPanel';
+import ShortcutsModal from './components/ShortcutsModal';
 import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
 import { getDocStats, getDocumentOutline } from './lib/docUtils';
 import { PROVIDERS, type ProviderId } from './lib/aiGateway';
@@ -49,6 +50,7 @@ export default function App() {
   const [showByok, setShowByok] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [showGithub, setShowGithub] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [showToc, setShowToc] = useState(true);
   const [showFiles, setShowFiles] = useState(true);
   const [zen, setZen] = useState<'none' | 'editor' | 'preview'>('none');
@@ -323,6 +325,7 @@ export default function App() {
           <button className="btn xs" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">🤝 Go Live</button>
         )}
         <button className="btn xs" onClick={() => setShowGithub(true)} title="GitHub sync">🐙</button>
+        <button className="btn xs" onClick={() => setShowShortcuts(true)} title="Keyboard shortcuts & help">⌨️</button>
         <button className="btn xs" onClick={() => setShowToc(!showToc)} title="Table of contents">TOC</button>
         <button className="btn xs" onClick={() => setZen(zen === 'editor' ? 'none' : 'editor')}>Zen</button>
         <button className="btn xs" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀️' : '🌙'}</button>
@@ -506,6 +509,9 @@ export default function App() {
       )}
       {showGithub && (
         <GithubPanel files={files} onImportFiles={importRepoFiles} onClose={() => setShowGithub(false)} />
+      )}
+      {showShortcuts && (
+        <ShortcutsModal onClose={() => setShowShortcuts(false)} />
       )}
     </div>
   );
