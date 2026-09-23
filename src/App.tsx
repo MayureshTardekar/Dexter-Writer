@@ -9,6 +9,12 @@ import GithubPanel from './components/GithubPanel';
 import ShortcutsModal from './components/ShortcutsModal';
 import HistoryModal from './components/HistoryModal';
 import CitationsModal from './components/CitationsModal';
+import ReviewAgentModal from './components/ReviewAgentModal';
+import CommandPalette, { type PaletteAction } from './components/CommandPalette';
+import Toasts from './components/Toasts';
+import ModalHeader from './components/ModalHeader';
+import Icon from './components/icons';
+import { toast } from './lib/toast';
 import { type CitationEntry } from './lib/citations';
 import { saveSnapshot } from './lib/history';
 import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
@@ -57,6 +63,7 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [citations, setCitations] = useState<CitationEntry[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('dexter-write:citations') || '[]');
@@ -80,6 +87,9 @@ export default function App() {
   const [showLive, setShowLive] = useState(false);
   const [peers, setPeers] = useState<CollabPeer[]>([]);
   const [livePrefill, setLivePrefill] = useState({ room: '', password: '' });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<'chat' | 'editor' | 'preview'>('editor');
+  const [pendingImport, setPendingImport] = useState<RepoDoc[] | null>(null);
   const editorRef = useRef<unknown>(null);
   const dragRef = useRef<{ kind: 'left' | 'right'; startX: number; startL: number; startR: number } | null>(null);
 
@@ -144,6 +154,36 @@ export default function App() {
     return () => { try { liveRef.current?.destroy(); } catch { /* noop */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const closeTop = useCallback(() => {
+    if (pendingImport) setPendingImport(null);
+    else if (showCitations) setShowCitations(false);
+    else if (showHistory) setShowHistory(false);
+    else if (showShortcuts) setShowShortcuts(false);
+    else if (showGithub) setShowGithub(false);
+    else if (showLive) setShowLive(false);
+    else if (showMcp) setShowMcp(false);
+    else if (showByok) setShowByok(false);
+    else if (paletteOpen) setPaletteOpen(false);
+  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showMcp, showByok, paletteOpen]);
+
+  // Global shortcuts: palette, save-guard, Esc-to-close.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (mod && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        toast('Project autosaved locally', 'success', 1800);
+      } else if (e.key === 'Escape' && !paletteOpen) {
+        closeTop();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closeTop, paletteOpen]);
 
   const stats = useMemo(() => getDocStats(docContent), [docContent]);
   const outline = useMemo(() => getDocumentOutline(docContent, docMode), [docContent, docMode]);
@@ -212,7 +252,10 @@ export default function App() {
     // Rebuild from current hash (holds room + key).
     const h = window.location.hash.replace(/^#/, '');
     const url = `${window.location.origin}${window.location.pathname}#${h || `room=${encodeURIComponent(s.room)}`}`;
-    navigator.clipboard?.writeText(url).catch(() => {});
+    navigator.clipboard?.writeText(url).then(
+      () => toast('Invite link copied to clipboard', 'success'),
+      () => toast('Could not copy link', 'error'),
+    );
   }
 
   const applyTemplateToActive = useCallback((id: string) => {
@@ -276,7 +319,13 @@ export default function App() {
 
   function importRepoFiles(docs: RepoDoc[]) {
     if (docs.length === 0) return;
-    if (!window.confirm(`Replace current project with ${docs.length} file(s) from GitHub?`)) return;
+    setPendingImport(docs);
+  }
+
+  function confirmImportRepoFiles() {
+    const docs = pendingImport;
+    setPendingImport(null);
+    if (!docs || docs.length === 0) return;
     const now = Date.now();
     // Build fresh project from repo docs
     const incoming: ProjectFile[] = docs.map((d, i) => ({
@@ -352,66 +401,175 @@ export default function App() {
     if (sess && active) sess.setContent(active.id, newContent);
   }
 
-  const keyStatus = apiKey ? '●' : '○';
+  const paletteActions = useMemo<PaletteAction[]>(() => {
+    const acts: PaletteAction[] = [];
+    for (const f of files) {
+      acts.push({ id: `file-${f.id}`, group: 'Files', label: `Open ${f.name}`, icon: 'fileText', run: () => setActiveId(f.id) });
+    }
+    acts.push({
+      id: 'new-file', group: 'Files', label: 'New untitled file', hint: 'md', icon: 'plus',
+      run: () => {
+        const name = uniqueName(filesRef.current, `untitled.${extForMode(docMode)}`);
+        const f = newProjectFile(name, docMode, '');
+        setFiles((prev) => [...prev, f]);
+        setActiveId(f.id);
+        liveRef.current?.addFile(f);
+        toast(`Created ${name}`, 'success', 2000);
+      },
+    });
+    for (const t of TEMPLATES) {
+      acts.push({ id: `tpl-${t.id}`, group: 'Templates', label: `Load ${t.label}`, icon: 'template', run: () => applyTemplateToActive(t.id) });
+    }
+    acts.push(
+      { id: 'mode-md', group: 'Document', label: 'Switch to Markdown', icon: 'fileText', run: () => switchMode('markdown') },
+      { id: 'mode-tex', group: 'Document', label: 'Switch to LaTeX', icon: 'book', run: () => switchMode('latex') },
+      { id: 'mode-typ', group: 'Document', label: 'Switch to Typst', icon: 'bolt', run: () => switchMode('typst') },
+      { id: 'theme', group: 'View', label: `Theme: switch to ${theme === 'dark' ? 'light' : 'dark'}`, icon: theme === 'dark' ? 'sun' : 'moon', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
+      { id: 'toc', group: 'View', label: `${showToc ? 'Hide' : 'Show'} table of contents`, icon: 'list', run: () => setShowToc((v) => !v) },
+      { id: 'files', group: 'View', label: `${showFiles ? 'Hide' : 'Show'} file explorer`, icon: 'files', run: () => setShowFiles((v) => !v) },
+      { id: 'zen', group: 'View', label: zen === 'editor' ? 'Exit Zen mode' : 'Zen: focus editor', icon: 'expand', run: () => setZen(zen === 'editor' ? 'none' : 'editor') },
+    );
+    acts.push(
+      { id: 'open-keys', group: 'Open', label: 'API keys (BYOK vault)', icon: 'key', run: () => setShowByok(true) },
+      { id: 'open-mcp', group: 'Open', label: 'External MCP servers', icon: 'plug', run: () => setShowMcp(true) },
+      { id: 'open-gh', group: 'Open', label: 'GitHub sync', icon: 'github', run: () => setShowGithub(true) },
+      { id: 'open-history', group: 'Open', label: 'Version history', icon: 'history', run: () => setShowHistory(true) },
+      { id: 'open-cite', group: 'Open', label: 'Citation manager', icon: 'book', run: () => setShowCitations(true) },
+      { id: 'open-review', group: 'Open', label: 'Autonomous Document Review Agent', icon: 'sparkles', run: () => setShowReview(true) },
+      { id: 'open-keys2', group: 'Open', label: 'Keyboard shortcuts', icon: 'keyboard', run: () => setShowShortcuts(true) },
+    );
+    const ex: Array<{ kind: ExportKind; label: string }> = [
+      { kind: 'pdf', label: 'Export PDF (print)' },
+      ...(docMode === 'typst' ? [{ kind: 'typst-pdf' as ExportKind, label: 'Export Typst PDF (vector)' }] : []),
+      { kind: 'tex', label: 'Export LaTeX (.tex)' },
+      { kind: 'md', label: 'Export Markdown (.md)' },
+      { kind: 'typ', label: 'Export Typst (.typ)' },
+      { kind: 'html', label: 'Export styled HTML' },
+      { kind: 'txt', label: 'Export plain text' },
+      { kind: 'zip', label: `Export project ZIP (${files.length} files)` },
+    ];
+    for (const e of ex) {
+      acts.push({
+        id: `export-${e.kind}`, group: 'Export', label: e.label, icon: 'download',
+        run: () => {
+          if (e.kind === 'zip') exportProjectZip(filesRef.current);
+          else doExport(e.kind, docContent, docMode);
+          toast('Export started', 'success', 2000);
+        },
+      });
+    }
+    if (live) {
+      acts.push({ id: 'invite', group: 'Live', label: 'Copy invite link', icon: 'link', run: copyInvite });
+      acts.push({ id: 'leave', group: 'Live', label: `Leave room ${live.room}`, icon: 'logout', run: leaveLive });
+    } else {
+      acts.push({ id: 'golive', group: 'Live', label: 'Start live collaboration…', icon: 'sparkles', run: () => { setLiveError(null); setShowLive(true); } });
+    }
+    return acts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, docMode, docContent, theme, showToc, showFiles, zen, live, applyTemplateToActive, switchMode]);
 
   return (
     <div className="app">
       <header className="toolbar">
-        <div className="brand">⚡ Dexter Write</div>
-        <button className="btn xs" onClick={() => setShowFiles(!showFiles)} title="File tree">📁 {files.length}</button>
-        <select value={templateId} onChange={(e) => applyTemplateToActive(e.target.value)} aria-label="Load template into current file" title="Load template into current file">
-          {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
-        <div className="seg">
-          <button className={docMode === 'markdown' ? 'active' : ''} onClick={() => switchMode('markdown')}>MD</button>
-          <button className={docMode === 'latex' ? 'active' : ''} onClick={() => switchMode('latex')}>LaTeX</button>
-          <button className={docMode === 'typst' ? 'active' : ''} onClick={() => switchMode('typst')}>Typst</button>
+        <div className="brand">
+          <span className="brand-mark"><Icon name="bolt" size={13} /></span>
+          <span className="brand-name">Dexter Write</span>
+        </div>
+        <div className="tb-group">
+          <button className="btn xs" onClick={() => setShowFiles(!showFiles)} title="File explorer">
+            <Icon name="files" size={14} /><span className="btn-label">{files.length}</span>
+          </button>
+          <select className="tb-select" value={templateId} onChange={(e) => applyTemplateToActive(e.target.value)} aria-label="Load template into current file" title="Load template into current file">
+            {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+          <div className="seg" role="group" aria-label="Document type">
+            <button className={docMode === 'markdown' ? 'active' : ''} onClick={() => switchMode('markdown')}>MD</button>
+            <button className={docMode === 'latex' ? 'active' : ''} onClick={() => switchMode('latex')}>LaTeX</button>
+            <button className={docMode === 'typst' ? 'active' : ''} onClick={() => switchMode('typst')}>Typst</button>
+          </div>
         </div>
         <div className="spacer" />
-        {live ? (
-          <>
-            <span className="live-badge" title={peers.map((p) => p.name).join(', ') || 'Connecting…'}>
-              🟢 {live.room} · {peers.length || 1}
-            </span>
-            <button className="btn xs" onClick={copyInvite} title="Copy invite link">🔗 Invite</button>
-            <button className="btn xs danger" onClick={leaveLive} title="Leave live session">Leave</button>
-          </>
-        ) : (
-          <button className="btn xs" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">🤝 Go Live</button>
-        )}
-        <button className="btn xs" onClick={() => setShowGithub(true)} title="GitHub sync">🐙</button>
-        <button className="btn xs" onClick={() => setShowCitations(true)} title="BibTeX & Citation manager">📚{citations.length > 0 ? ` ${citations.length}` : ''}</button>
-        <button className="btn xs" onClick={() => setShowHistory(true)} title="Version history & checkpoints">⏱️</button>
-        <button className="btn xs" onClick={() => setShowShortcuts(true)} title="Keyboard shortcuts & help">⌨️</button>
-        <button className="btn xs" onClick={() => setShowToc(!showToc)} title="Table of contents">TOC</button>
-        <button className="btn xs" onClick={() => setZen(zen === 'editor' ? 'none' : 'editor')}>Zen</button>
-        <button className="btn xs" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀️' : '🌙'}</button>
-        <button className="btn xs" onClick={() => setShowMcp(true)} title="External MCP servers">🔌{connectedCount > 0 ? ` ${connectedCount}` : ''}</button>
-        <button className="btn xs" onClick={() => setShowByok(true)} title="BYOK settings">🔑 {keyStatus} {provider}</button>
-        <select
-          aria-label="Export"
-          defaultValue=""
-          onChange={(e) => {
-            const v = e.target.value as ExportKind | '';
-            e.target.value = '';
-            if (!v) return;
-            if (v === 'zip') exportProjectZip(files);
-            else doExport(v, docContent, docMode);
-          }}
-        >
-          <option value="" disabled>Export ▾</option>
-          <option value="pdf">PDF (print)</option>
-          <option value="typst-pdf" disabled={docMode !== 'typst'}>Typst PDF (vector ⚡)</option>
-          <option value="tex">LaTeX .tex</option>
-          <option value="md">Markdown .md</option>
-          <option value="typ">Typst .typ</option>
-          <option value="html">Styled HTML</option>
-          <option value="txt">Plain text</option>
-          <option value="zip">Project .zip ({files.length} files)</option>
-        </select>
+        <div className="seg view-switch" role="group" aria-label="Panel view">
+          <button className={mobileView === 'chat' ? 'active' : ''} onClick={() => setMobileView('chat')}>Chat</button>
+          <button className={mobileView === 'editor' ? 'active' : ''} onClick={() => setMobileView('editor')}>Editor</button>
+          <button className={mobileView === 'preview' ? 'active' : ''} onClick={() => setMobileView('preview')}>Preview</button>
+        </div>
+        <div className="tb-group">
+          <button className="btn xs" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">
+            <Icon name="command" size={14} /><span className="btn-label optional">Commands</span>
+          </button>
+        </div>
+        <div className="tb-sep" />
+        <div className="tb-group">
+          {live ? (
+            <>
+              <span className="live-badge" title={peers.map((p) => p.name).join(', ') || 'Connecting…'}>
+                <span className="live-dot" />{live.room} · {peers.length || 1}
+              </span>
+              <button className="btn xs" onClick={copyInvite} title="Copy invite link">
+                <Icon name="link" size={14} /><span className="btn-label optional">Invite</span>
+              </button>
+              <button className="btn xs danger" onClick={leaveLive} title="Leave live session">
+                <Icon name="logout" size={14} /><span className="btn-label optional">Leave</span>
+              </button>
+            </>
+          ) : (
+            <button className="btn xs" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">
+              <Icon name="sparkles" size={14} /><span className="btn-label optional">Live</span>
+            </button>
+          )}
+          <button className="btn xs icon-btn" onClick={() => setShowGithub(true)} title="GitHub sync"><Icon name="github" size={15} /></button>
+          <button className="btn xs icon-btn" onClick={() => setShowCitations(true)} title={`Citations${citations.length > 0 ? ` (${citations.length})` : ''}`}><Icon name="book" size={15} /></button>
+          <button className="btn xs icon-btn" onClick={() => setShowHistory(true)} title="Version history"><Icon name="history" size={15} /></button>
+          <button className="btn xs icon-btn" onClick={() => setShowShortcuts(true)} title="Shortcuts"><Icon name="keyboard" size={15} /></button>
+          <button className="btn xs" onClick={() => setShowReview(true)} title="Autonomous Document Review Agent">
+            <Icon name="sparkles" size={14} /><span className="btn-label optional">Audit</span>
+          </button>
+        </div>
+        <div className="tb-sep" />
+        <div className="tb-group">
+          <button className="btn xs" onClick={() => setShowToc(!showToc)} title="Table of contents">
+            <Icon name="list" size={14} /><span className="btn-label optional">TOC</span>
+          </button>
+          <button className="btn xs" onClick={() => setZen(zen === 'editor' ? 'none' : 'editor')} title="Zen editor">
+            <Icon name="expand" size={14} /><span className="btn-label optional">Zen</span>
+          </button>
+          <button className="btn xs icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
+          </button>
+          <button className="btn xs" onClick={() => setShowMcp(true)} title="External MCP servers">
+            <Icon name="plug" size={14} /><span className="btn-label optional">{connectedCount > 0 ? `MCP ${connectedCount}` : 'MCP'}</span>
+          </button>
+          <button className="btn xs" onClick={() => setShowByok(true)} title="BYOK settings">
+            <Icon name="key" size={14} /><span className="btn-label optional">{provider}</span>
+            <span className={`dot ${apiKey ? 'connected' : ''}`} title={apiKey ? 'Key saved' : 'No key'} />
+          </button>
+          <select
+            className="tb-select"
+            aria-label="Export"
+            defaultValue=""
+            onChange={(e) => {
+              const v = e.target.value as ExportKind | '';
+              e.target.value = '';
+              if (!v) return;
+              if (v === 'zip') exportProjectZip(files);
+              else doExport(v, docContent, docMode);
+            }}
+          >
+            <option value="" disabled>Export ▾</option>
+            <option value="pdf">PDF (print)</option>
+            <option value="typst-pdf" disabled={docMode !== 'typst'}>Typst PDF (vector)</option>
+            <option value="tex">LaTeX .tex</option>
+            <option value="md">Markdown .md</option>
+            <option value="typ">Typst .typ</option>
+            <option value="html">Styled HTML</option>
+            <option value="txt">Plain text</option>
+            <option value="zip">Project .zip ({files.length} files)</option>
+          </select>
+        </div>
       </header>
 
-      <main className="panes">
+      <main className="panes" data-view={mobileView}>
         {zen === 'none' && (
           <section className="pane left" style={{ width: `${leftPct}%` }}>
             <div className="pane-head">AI Playground <span className="muted small">{PROVIDERS.find((p) => p.id === provider)?.label}</span></div>
@@ -428,6 +586,7 @@ export default function App() {
               editorRef={editorRef}
               servers={servers}
               theme={theme}
+              onOpenReview={() => setShowReview(true)}
             />
           </section>
         )}
@@ -436,16 +595,8 @@ export default function App() {
         {(zen === 'none' || zen === 'editor') && (
           <section className="pane center" style={{ flex: 1 }}>
             <div className="pane-head">
-              <span>Editor <span className="muted small">{docMode} · {docContent.split('\n').length} lines</span></span>
-              {live && (
-                <span className="peers">
-                  {peers.map((p) => (
-                    <span key={p.clientId} className="peer" style={{ borderColor: p.color }} title={p.self ? `${p.name} (you)` : p.name}>
-                      <i style={{ background: p.color }} />{p.name}{p.self ? ' (you)' : ''}
-                    </span>
-                  ))}
-                </span>
-              )}
+              <span>Editor</span>
+              <span className="muted small">{docMode} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
             </div>
             {showFiles && (
               <div className="filebar">
@@ -460,30 +611,35 @@ export default function App() {
             )}
             <div className="editor-row">
               {showFiles && (
-                <aside className="filetree">
+                <aside className="filetree" aria-label="File explorer">
+                  <div className="filetree-head">Explorer</div>
                   {files.map((f) => (
-                    <div key={f.id} className={`file-item ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)}>
+                    <div key={f.id} className={`file-item ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
+                      <Icon name="fileText" size={13} className="ficon" />
                       <span className="fname">{f.name}</span>
-                      <span className="muted small">{f.mode}</span>
+                      <span className="fmode">{f.mode === 'markdown' ? 'md' : f.mode === 'latex' ? 'tex' : 'typ'}</span>
                       {files.length > 1 && (
                         <button
-                          className="btn xs ghost"
+                          className="btn xs ghost icon-btn file-del"
                           title="Delete file"
+                          aria-label={`Delete ${f.name}`}
                           onClick={(e) => { e.stopPropagation(); removeFile(f.id); }}
                         >
-                          ✕
+                          <Icon name="trash" size={12} />
                         </button>
                       )}
                     </div>
                   ))}
                   <div className="file-add">
-                    <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="new-file" aria-label="New file name" />
+                    <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addFile(); }} placeholder="new-file" aria-label="New file name" />
                     <select value={newMode} onChange={(e) => setNewMode(e.target.value as DocMode)} aria-label="New file type">
                       <option value="markdown">.md</option>
                       <option value="latex">.tex</option>
                       <option value="typst">.typ</option>
                     </select>
-                    <button className="btn xs primary" onClick={addFile}>+</button>
+                    <button className="btn xs primary icon-btn" onClick={addFile} title="New file" aria-label="New file">
+                      <Icon name="plus" size={13} />
+                    </button>
                   </div>
                 </aside>
               )}
@@ -526,14 +682,28 @@ export default function App() {
       </main>
 
       <footer className="statusbar">
-        <span>📄 {active?.name}</span><span>{stats.words} words</span><span>{stats.chars} chars</span><span>{stats.lines} lines</span><span>~{stats.readingTimeMin} min read</span>
+        <span className="stat" title={active?.name}>{active?.name}</span>
+        <span className="stat">{stats.words} words</span>
+        <span className="stat hide-mobile">{stats.chars} chars</span>
+        <span className="stat hide-mobile">{stats.lines} lines</span>
+        <span className="stat hide-mobile">~{stats.readingTimeMin} min</span>
         <span className="spacer" />
-        {live && <span>🟢 {live.room}</span>}
-        <span>{files.length} files</span>
-        <span>{connectedCount > 0 ? `🔌 ${connectedCount} MCP` : ''}</span>
-        <span>{provider}:{model}</span>
-        <span>{apiKey ? '🔑 key saved' : provider === 'ollama' ? 'local mode' : 'no key'}</span>
-        <span>Ctrl+S saved locally · Ctrl+Z undoes AI edits</span>
+        {live && (
+          <span className="stat" title={peers.map((p) => p.name).join(', ')}>
+            <span className="peers">
+              {peers.slice(0, 4).map((p) => (
+                <span key={p.clientId} className="peer" style={{ borderColor: p.color }} title={p.self ? `${p.name} (you)` : p.name}>
+                  <i style={{ background: p.color }} />
+                </span>
+              ))}
+              {live.room}
+            </span>
+          </span>
+        )}
+        <span className="stat hide-mobile">{files.length} files</span>
+        {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
+        <span className="stat hide-mobile">{provider}:{model}</span>
+        <span className="stat">{apiKey ? 'Key saved' : provider === 'ollama' ? 'Local mode' : 'No key'}</span>
       </footer>
 
       {showByok && (
@@ -593,6 +763,43 @@ export default function App() {
           onClose={() => setShowCitations(false)}
         />
       )}
+      {showReview && (
+        <ReviewAgentModal
+          content={docContent}
+          onApplyContent={(newContent) => {
+            setDocContent(newContent);
+            const sess = liveRef.current;
+            if (sess && active) sess.setContent(active.id, newContent);
+          }}
+          mode={docMode}
+          provider={provider}
+          apiKey={apiKey}
+          baseUrl={baseUrl}
+          model={model}
+          fileName={active?.name || 'document'}
+          fileId={active?.id || 'active'}
+          onClose={() => setShowReview(false)}
+        />
+      )}
+      {pendingImport && (
+        <div className="modal-backdrop" onClick={() => setPendingImport(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Confirm GitHub import">
+            <ModalHeader icon="github" title="Replace project?" sub="Importing from GitHub replaces every file in the current project." onClose={() => setPendingImport(null)} />
+            <div className="modal-body">
+              <ul className="confirm-list">
+                {pendingImport.slice(0, 8).map((d) => <li key={d.path}>{d.path}</li>)}
+                {pendingImport.length > 8 && <li>…and {pendingImport.length - 8} more</li>}
+              </ul>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" onClick={() => setPendingImport(null)}>Keep current project</button>
+              <button className="btn primary" onClick={confirmImportRepoFiles}>Replace with {pendingImport.length} files</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <Toasts />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={paletteActions} />
     </div>
   );
 }

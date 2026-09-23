@@ -18,6 +18,7 @@ import {
   type RepoDoc,
 } from '../lib/github';
 import { getSelfName } from '../lib/collab';
+import ModalHeader from './ModalHeader';
 import type { ProjectFile } from '../lib/projectFiles';
 
 interface Props {
@@ -166,7 +167,8 @@ export default function GithubPanel({ files, onImportFiles, onClose }: Props) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GitHub sync">
-        <h2>🐙 GitHub Sync {user && <span className="muted small">· {user.login}</span>}</h2>
+        <ModalHeader icon="github" title="GitHub Sync" sub={user ? `Signed in as ${user.login}` : 'Clone, commit and push repositories directly from the browser.'} onClose={onClose} />
+        <div className="modal-body">
         <div className="seg" style={{ alignSelf: 'flex-start' }}>
           <button className={tab === 'connect' ? 'active' : ''} onClick={() => setTab('connect')}>Connect</button>
           <button className={tab === 'sync' ? 'active' : ''} onClick={() => setTab('sync')}>Sync</button>
@@ -230,7 +232,8 @@ export default function GithubPanel({ files, onImportFiles, onClose }: Props) {
           </div>
         )}
 
-        <div className="row end">
+        </div>
+        <div className="modal-foot">
           <button className="btn" onClick={onClose}>Close</button>
         </div>
       </div>

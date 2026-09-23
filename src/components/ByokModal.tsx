@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PROVIDERS, type ProviderId } from '../lib/aiGateway';
 import { vaultDelete } from '../lib/vault';
+import ModalHeader from './ModalHeader';
 
 interface Props {
   provider: ProviderId;
@@ -23,8 +24,8 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="BYOK settings">
-        <h2>🔑 BYOK Security Vault</h2>
-        <p className="muted">Keys are AES-GCM encrypted in localStorage. Requests go direct to providers — no middleman.</p>
+        <ModalHeader icon="key" title="BYOK Security Vault" sub="Keys are AES-GCM encrypted in localStorage. Requests go direct to providers — no middleman." onClose={onClose} />
+        <div className="modal-body">
         <label>Provider</label>
         <select value={provider} onChange={(e) => { setProvider(e.target.value as ProviderId); const d = PROVIDERS.find((p) => p.id === e.target.value)!; setModel(d.defaultModel); }}>
           {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -47,7 +48,8 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
           </>
         )}
         <p className="muted small">{info.help}</p>
-        <div className="row end">
+        </div>
+        <div className="modal-foot">
           {info.needsKey && <button className="btn danger" onClick={() => { vaultDelete(info.keyName); setApiKey(''); }}>Clear key</button>}
           <button className="btn" onClick={onClose}>Close</button>
           <button

@@ -7,6 +7,7 @@ import {
   type ExternalMcpServer,
   type McpTransport,
 } from '../lib/externalMcp';
+import ModalHeader from './ModalHeader';
 
 interface Props {
   servers: ExternalMcpServer[];
@@ -73,12 +74,14 @@ export default function McpManager({ servers, setServers, onClose }: Props) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="MCP server manager">
-        <h2>🔌 External MCP Servers</h2>
-        <p className="muted small">
-          Connect remote MCP servers over Streamable HTTP or legacy SSE. The AI can call enabled tools — each call asks permission first
-          unless set to always-allow. Try a GitHub or web-search MCP endpoint.
-        </p>
-        <div className="mcp-add">
+        <ModalHeader
+          icon="plug"
+          title="External MCP Servers"
+          sub="Connect remote MCP servers over Streamable HTTP or legacy SSE. The AI can call enabled tools — each call asks permission first unless set to always-allow."
+          onClose={onClose}
+        />
+        <div className="modal-body">
+          <div className="mcp-add">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. GitHub MCP)" aria-label="Server name" />
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/mcp  or  https://…/sse" aria-label="Server URL" />
           <select value={transport} onChange={(e) => setTransport(e.target.value as McpTransport)} aria-label="Transport">
@@ -88,7 +91,7 @@ export default function McpManager({ servers, setServers, onClose }: Props) {
           <button className="btn primary" onClick={add}>Add</button>
         </div>
         <div className="mcp-list">
-          {servers.length === 0 && <p className="muted">No servers yet. Add one above.</p>}
+          {servers.length === 0 && <div className="mcp-empty muted">No servers yet. Add one above — try a GitHub or web-search MCP endpoint.</div>}
           {servers.map((s) => (
             <div key={s.id} className="mcp-server">
               <div className="mcp-head">
@@ -96,8 +99,8 @@ export default function McpManager({ servers, setServers, onClose }: Props) {
                   <input type="checkbox" checked={s.enabled} onChange={(e) => update(s.id, { enabled: e.target.checked })} />
                 </label>
                 <strong>{s.name}</strong>
-                <span className={`dot ${s.status}`}>{s.status === 'connected' ? '🟢' : s.status === 'error' ? '🔴' : s.status === 'connecting' ? '🟡' : '⚪'} {s.status}</span>
-                <span className="muted small">{s.transport.toUpperCase()} · {s.url}</span>
+                <span className={`dot ${s.status}`}>{s.status}</span>
+                <span className="muted small mcp-url">{s.transport.toUpperCase()} · {s.url}</span>
                 <span className="spacer" />
                 <button className="btn xs" disabled={busy === s.id} onClick={() => connect(s.id)}>
                   {busy === s.id ? 'Connecting…' : s.status === 'connected' ? 'Refresh' : 'Connect'}
@@ -117,7 +120,7 @@ export default function McpManager({ servers, setServers, onClose }: Props) {
                         />
                       </label>
                       <code>{t.name}</code>
-                      <span className="muted small">{(t.description || '').slice(0, 120)}</span>
+                      <span className="muted small tool-desc" title={t.description}>{(t.description || '').slice(0, 120)}</span>
                       <span className="spacer" />
                       <button
                         className="btn xs ghost"
@@ -139,9 +142,10 @@ export default function McpManager({ servers, setServers, onClose }: Props) {
               )}
             </div>
           ))}
-        </div>
-        <div className="row end">
-          <button className="btn" onClick={onClose}>Close</button>
+          </div>
+          <div className="modal-foot">
+            <button className="btn" onClick={onClose}>Close</button>
+          </div>
         </div>
       </div>
     </div>

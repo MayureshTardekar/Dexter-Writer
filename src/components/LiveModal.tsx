@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ModalHeader from './ModalHeader';
 
 interface Props {
   initialRoom: string;
@@ -19,11 +20,13 @@ export default function LiveModal({ initialRoom, initialPassword, initialName, b
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Live collaboration">
-        <h2>🤝 Live Collaboration</h2>
-        <p className="muted small">
-          Peer-to-peer via WebRTC + Yjs CRDTs. Signaling only introduces peers — document content never touches a server.
-          Optional password enables end-to-end encryption.
-        </p>
+        <ModalHeader
+          icon="sparkles"
+          title="Live Collaboration"
+          sub="Peer-to-peer via WebRTC + Yjs CRDTs. Signaling only introduces peers — document content never touches a server. Optional password enables end-to-end encryption."
+          onClose={onClose}
+        />
+        <div className="modal-body">
         <label>Display name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Writer-ABCD" />
         <label>Room ID</label>
@@ -38,8 +41,9 @@ export default function LiveModal({ initialRoom, initialPassword, initialName, b
         </div>
         <label>Room password (optional)</label>
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Shared secret for E2E encryption" />
-        {error && <div className="mcp-error">❌ {error}</div>}
-        <div className="row end">
+        {error && <div className="mcp-error">{error}</div>}
+        </div>
+        <div className="modal-foot">
           <button className="btn" onClick={onClose}>Cancel</button>
           <button
             className="btn primary"

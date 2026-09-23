@@ -6,6 +6,8 @@ import {
   type CitationEntry,
 } from '../lib/citations';
 import { downloadFile } from '../lib/exportDoc';
+import ModalHeader from './ModalHeader';
+import Icon from './icons';
 
 interface Props {
   citations: CitationEntry[];
@@ -78,13 +80,13 @@ export default function CitationsModal({
         aria-label="Citations and References Manager"
         style={{ width: '800px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <div>
-            <h2 style={{ margin: 0 }}>📚 BibTeX & Citations Manager</h2>
-            <span className="muted small">Overleaf-style references: search papers, generate BibTeX, and insert citations</span>
-          </div>
-          <button className="btn xs ghost" onClick={onClose}>✕</button>
-        </div>
+        <ModalHeader
+          icon="book"
+          title="BibTeX & Citations Manager"
+          sub="Search papers, generate BibTeX, and insert citations"
+          onClose={onClose}
+        />
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
 
         {/* Tab navigation */}
         <div className="seg" style={{ alignSelf: 'flex-start', margin: '8px 0' }}>
@@ -92,10 +94,10 @@ export default function CitationsModal({
             My References ({citations.length})
           </button>
           <button className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>
-            🔍 Search Papers (Crossref/DOI)
+            Search Papers
           </button>
           <button className={tab === 'paste' ? 'active' : ''} onClick={() => setTab('paste')}>
-            + Paste BibTeX
+            Paste BibTeX
           </button>
         </div>
 
@@ -106,7 +108,7 @@ export default function CitationsModal({
               <span className="muted small">Click <strong>Insert</strong> to inject into editor buffer</span>
               {citations.length > 0 && (
                 <button className="btn xs ghost" onClick={exportBib}>
-                  ⬇ Export references.bib
+                  <Icon name="download" size={12} /> Export references.bib
                 </button>
               )}
             </div>
@@ -157,11 +159,12 @@ export default function CitationsModal({
                       Insert
                     </button>
                     <button
-                      className="btn xs danger"
+                      className="btn xs danger icon-btn"
                       onClick={() => onRemoveCitation(c.key)}
                       title="Remove citation"
+                      aria-label={`Remove ${c.key}`}
                     >
-                      ✕
+                      <Icon name="trash" size={12} />
                     </button>
                   </div>
                 </div>
@@ -268,7 +271,8 @@ export default function CitationsModal({
           </div>
         )}
 
-        <div className="row end" style={{ marginTop: '12px' }}>
+        </div>
+        <div className="modal-foot">
           <button className="btn" onClick={onClose}>Close</button>
         </div>
       </div>

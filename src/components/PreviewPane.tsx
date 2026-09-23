@@ -10,6 +10,16 @@ import type { DocMode } from '../lib/templates';
 import MermaidBlock from './MermaidBlock';
 
 function MarkdownPreview({ content, theme = 'dark' }: { content: string; theme?: 'dark' | 'light' }) {
+  if (!content.trim()) {
+    return (
+      <div className="preview-scroll">
+        <div className="preview-empty">
+          <p><strong>Empty document</strong></p>
+          <p>Start typing in the editor — the preview renders here instantly,<br />including math like $E=mc^2$ and diagrams.</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="preview-scroll">
       <article className="preview-doc">

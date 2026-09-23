@@ -2,6 +2,7 @@ import { stripToPlainText } from './docUtils';
 import type { DocMode } from './templates';
 import { compileTypstPdf } from './typstEngine';
 import { downloadZip } from './zip';
+import { toast } from './toast';
 import type { ProjectFile } from './projectFiles';
 
 export type ExportKind = 'pdf' | 'tex' | 'md' | 'html' | 'txt' | 'typ' | 'typst-pdf' | 'zip';
@@ -82,7 +83,7 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode): void
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 2000);
       } else {
-        alert(`Typst PDF failed: ${res.error || res.diagnostics.join('\n') || 'unknown error'}`);
+        toast(`Typst PDF failed: ${res.error || res.diagnostics.join('\n') || 'unknown error'}`, 'error', 7000);
       }
     })();
     return;

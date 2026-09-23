@@ -1,4 +1,4 @@
-import { useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { buildSystemPrompt, callLlm, type ChatHistoryItem, type ExtraToolDef, type ProviderId } from '../lib/aiGateway';
 import { getDocumentOutline } from '../lib/docUtils';
 import { executeVirtualTool, toolBadge, type McpToolCall } from '../lib/virtualMcp';
@@ -13,6 +13,8 @@ import {
 } from '../lib/externalMcp';
 import { monacoLanguageFor } from '../lib/monacoTypst';
 import DiffReviewModal from './DiffReviewModal';
+import ModalHeader from './ModalHeader';
+import Icon from './icons';
 import type { DocMode } from '../lib/templates';
 import { saveSnapshot } from '../lib/history';
 
@@ -35,6 +37,7 @@ interface Props {
   editorRef: MutableRefObject<unknown>;
   servers: ExternalMcpServer[];
   theme: 'dark' | 'light';
+  onOpenReview?: () => void;
 }
 
 interface ChatMsg {
@@ -92,7 +95,21 @@ function applyViaMonaco(editorRef: MutableRefObject<unknown>, current: string, c
   }
 }
 
-export default function AiPlayground({ docContent, setDocContent, docMode, provider, apiKey, model, baseUrl, selection, clearSelection, editorRef, servers, theme }: Props) {
+export default function AiPlayground({
+  docContent,
+  setDocContent,
+  docMode,
+  provider,
+  apiKey,
+  model,
+  baseUrl,
+  selection,
+  clearSelection,
+  editorRef,
+  servers,
+  theme,
+  onOpenReview,
+}: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([
     { role: 'assistant', text: 'Hi! I can read, outline, insert and rewrite your document via MCP tools — plus any connected external MCP servers. Toggle Diff Review to approve edits per-chunk.' },
   ]);
@@ -102,11 +119,31 @@ export default function AiPlayground({ docContent, setDocContent, docMode, provi
   const [pending, setPending] = useState<{ summary: string; before: string; after: string } | null>(null);
   const [listening, setListening] = useState(false);
   const [permReq, setPermReq] = useState<PermRequest | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const permResolver = useRef<((v: 'once' | 'always' | 'deny') => void) | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef(docContent);
   contentRef.current = docContent;
   const serversRef = useRef(servers);
   serversRef.current = servers;
+
+  // Keep the latest message in view (but don't yank while the user scrolls up).
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+    if (nearBottom || sending) el.scrollTop = el.scrollHeight;
+  }, [messages, sending]);
+
+  function copyMessage(i: number, text: string) {
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopiedIdx(i);
+        setTimeout(() => setCopiedIdx((c) => (c === i ? null : c)), 1400);
+      },
+      () => {},
+    );
+  }
 
   function requestPermission(def: LlmExternalDef, serverName: string, args: Record<string, unknown>): Promise<'once' | 'always' | 'deny'> {
     return new Promise((resolve) => {
@@ -297,34 +334,60 @@ export default function AiPlayground({ docContent, setDocContent, docMode, provi
           Diff Review
         </label>
         <span className="muted small">{diffMode ? 'AI stages edits' : 'Auto-Apply on'}</span>
+        <div className="spacer" />
+        {onOpenReview && (
+          <button className="btn xs ghost" onClick={onOpenReview} title="Autonomous Document Review Agent">
+            <Icon name="sparkles" size={13} /> <span className="btn-label optional">Audit</span>
+          </button>
+        )}
       </div>
       {selection && selection.text && (
         <div className="sel-chip">
-          <span>Lines {selection.startLine}-{selection.endLine} selected ({selection.text.length} chars)</span>
-          <button className="btn xs" onClick={() => send(`Explain and improve this selection:\n${selection.text.slice(0, 2000)}`)}>Ask AI</button>
-          <button className="btn xs ghost" onClick={clearSelection}>✕</button>
+          <Icon name="quote" size={13} />
+          <span>Lines {selection.startLine}-{selection.endLine} · {selection.text.length} chars</span>
+          <button className="btn xs primary" onClick={() => send(`Explain and improve this selection:\n${selection.text.slice(0, 2000)}`)}>
+            <Icon name="sparkles" size={12} /> Ask AI
+          </button>
+          <button className="btn xs ghost icon-btn" onClick={clearSelection} aria-label="Clear selection">
+            <Icon name="x" size={12} />
+          </button>
         </div>
       )}
-      <div className="chat-feed">
+      <div className="chat-feed" ref={feedRef}>
         {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
             {m.badges?.map((b, j) => <div key={j} className="badge">{b}</div>)}
             <div className="bubble-text">{m.text}</div>
+            {m.role === 'assistant' && m.text.length > 40 && (
+              <button
+                className="btn xs ghost bubble-copy"
+                title="Copy message"
+                aria-label="Copy message"
+                onClick={() => copyMessage(i, m.text)}
+              >
+                <Icon name={copiedIdx === i ? 'check' : 'copy'} size={12} />
+              </button>
+            )}
           </div>
         ))}
-        {sending && <div className="bubble assistant"><div className="bubble-text">Thinking + running MCP tools…</div></div>}
+        {sending && <div className="bubble assistant"><div className="bubble-text typing">Thinking + running MCP tools</div></div>}
       </div>
       <div className="chat-input">
-        <button className={`btn icon ${listening ? 'rec' : ''}`} onClick={toggleVoice} title="Voice to document" aria-label="Voice input">🎙️</button>
+        <button className={`btn icon-btn ${listening ? 'rec' : ''}`} onClick={toggleVoice} title="Voice to document" aria-label="Voice input">
+          <Icon name="mic" size={15} />
+        </button>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Ask AI… (Enter to send, Ctrl+Enter newline)"
+          placeholder="Ask AI to read, write, or rewrite…"
           aria-label="AI prompt"
         />
-        <button className="btn primary" onClick={() => send()} disabled={sending}>Send</button>
+        <button className="btn primary icon-btn" onClick={() => send()} disabled={sending || !input.trim()} title="Send (Enter)" aria-label="Send prompt">
+          <Icon name="send" size={15} />
+        </button>
       </div>
+      <div className="chat-hint"><kbd>Enter</kbd> send · <kbd>Ctrl+Enter</kbd> newline · select text to <strong>Ask AI</strong></div>
       {pending && (
         <DiffReviewModal
           summary={pending.summary}
@@ -343,10 +406,11 @@ export default function AiPlayground({ docContent, setDocContent, docMode, provi
       {permReq && (
         <div className="modal-backdrop" role="dialog" aria-label="MCP permission request">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>🔌 Allow MCP tool call?</h3>
-            <p><strong>{permReq.serverName}</strong> → <code>{permReq.toolName}</code></p>
-            <pre className="perm-args">{JSON.stringify(permReq.args, null, 2).slice(0, 1500)}</pre>
-            <div className="row end">
+            <ModalHeader icon="plug" title="Allow MCP tool call?" sub={`${permReq.serverName} → ${permReq.toolName}`} onClose={() => resolvePerm('deny')} />
+            <div className="modal-body">
+              <pre className="perm-args">{JSON.stringify(permReq.args, null, 2).slice(0, 1500)}</pre>
+            </div>
+            <div className="modal-foot">
               <button className="btn danger" onClick={() => resolvePerm('deny')}>Deny</button>
               <button className="btn" onClick={() => resolvePerm('once')}>Allow once</button>
               <button className="btn primary" onClick={() => resolvePerm('always')}>Always allow</button>

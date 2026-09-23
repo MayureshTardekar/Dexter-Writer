@@ -7,6 +7,8 @@ import {
   type DocSnapshot,
 } from '../lib/history';
 import { computeHunks, hunkLabel } from '../lib/lineDiff';
+import ModalHeader from './ModalHeader';
+import Icon from './icons';
 
 interface Props {
   fileId: string;
@@ -26,6 +28,7 @@ export default function HistoryModal({
   const [snapshots, setSnapshots] = useState<DocSnapshot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [customLabel, setCustomLabel] = useState('');
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -73,13 +76,13 @@ export default function HistoryModal({
         aria-label="Document Revision History"
         style={{ width: '840px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <div>
-            <h2 style={{ margin: 0 }}>⏱️ Document History & Snapshots</h2>
-            <span className="muted small">File: <strong>{fileName}</strong> · Time-travel and restore previous versions</span>
-          </div>
-          <button className="btn xs ghost" onClick={onClose}>✕</button>
-        </div>
+        <ModalHeader
+          icon="history"
+          title="Document History & Snapshots"
+          sub={fileName ? <>File: <strong>{fileName}</strong> · time-travel and restore previous versions</> : 'Time-travel and restore previous versions'}
+          onClose={onClose}
+        />
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
         {/* Manual Checkpoint Form */}
         <div style={{ display: 'flex', gap: '8px', margin: '10px 0', alignItems: 'center' }}>
@@ -138,15 +141,16 @@ export default function HistoryModal({
                       {s.label}
                     </strong>
                     <button
-                      className="btn xs ghost"
-                      style={{ padding: '0 4px', fontSize: '11px', color: 'var(--danger)' }}
+                      className="btn xs ghost icon-btn"
+                      style={{ color: 'var(--danger)' }}
                       title="Delete snapshot"
+                      aria-label={`Delete snapshot ${s.label}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDelete(s.id);
                       }}
                     >
-                      ✕
+                      <Icon name="trash" size={12} />
                     </button>
                   </div>
                   <div className="muted" style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between' }}>
@@ -170,13 +174,16 @@ export default function HistoryModal({
                   <button
                     className="btn primary xs"
                     onClick={() => {
-                      if (window.confirm(`Restore file to "${selected.label}"?`)) {
+                      if (confirmRestore === selected.id) {
                         onRestore(selected.content);
                         onClose();
+                      } else {
+                        setConfirmRestore(selected.id);
+                        setTimeout(() => setConfirmRestore((c) => (c === selected.id ? null : c)), 3500);
                       }
                     }}
                   >
-                    ⏪ Restore Version
+                    {confirmRestore === selected.id ? 'Click again to confirm restore' : 'Restore Version'}
                   </button>
                 </div>
 
@@ -223,8 +230,9 @@ export default function HistoryModal({
           </div>
         </div>
 
-        <div className="row end" style={{ marginTop: '12px' }}>
+        <div className="modal-foot">
           <button className="btn" onClick={onClose}>Close</button>
+        </div>
         </div>
       </div>
     </div>

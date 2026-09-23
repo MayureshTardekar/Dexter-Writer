@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import { applyHunks, computeHunks, hunkLabel } from '../lib/lineDiff';
 import { registerTypstLanguage } from '../lib/monacoTypst';
+import ModalHeader from './ModalHeader';
 
 interface Props {
   summary: string;
@@ -32,10 +33,13 @@ export default function DiffReviewModal({ summary, before, after, language, them
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Diff review">
-        <h3>{summary}</h3>
-        <p className="muted small">
-          {accepted.size}/{changeHunks.length} chunks accepted · green = proposed, red = current
-        </p>
+        <ModalHeader
+          icon="fileText"
+          title={summary}
+          sub={`${accepted.size}/${changeHunks.length} chunks accepted · green = proposed, red = current`}
+          onClose={onClose}
+        />
+        <div className="modal-body">
         <div className="diff-body">
           <div className="diff-editor-wrap">
             <DiffEditor
@@ -69,7 +73,8 @@ export default function DiffReviewModal({ summary, before, after, language, them
             </div>
           </aside>
         </div>
-        <div className="row end">
+        </div>
+        <div className="modal-foot">
           <button className="btn" onClick={onClose}>Discard</button>
           <button className="btn primary" onClick={() => onAccept(preview)}>
             Apply {accepted.size} chunk{accepted.size === 1 ? '' : 's'}
