@@ -14,6 +14,7 @@ import {
 import { monacoLanguageFor } from '../lib/monacoTypst';
 import DiffReviewModal from './DiffReviewModal';
 import type { DocMode } from '../lib/templates';
+import { saveSnapshot } from '../lib/history';
 
 export interface SelectionCtx {
   text: string;
@@ -122,6 +123,7 @@ export default function AiPlayground({ docContent, setDocContent, docMode, provi
 
   function stageOrApply(call: McpToolCall, badges: string[]): void {
     const cur = contentRef.current;
+    saveSnapshot('active', 'active-file', cur, `Pre-AI: ${call.name}`).catch(() => {});
     if (call.name === 'insert_content' || call.name === 'insert_text') {
       const via = applyViaMonaco(editorRef, cur, call);
       if (diffMode) {

@@ -7,12 +7,30 @@ import 'katex/dist/katex.min.css';
 import { latexToReadable, typstToReadable } from '../lib/docUtils';
 import { renderTypstSvg, warmupTypstEngine } from '../lib/typstEngine';
 import type { DocMode } from '../lib/templates';
+import MermaidBlock from './MermaidBlock';
 
-function MarkdownPreview({ content }: { content: string }) {
+function MarkdownPreview({ content, theme = 'dark' }: { content: string; theme?: 'dark' | 'light' }) {
   return (
     <div className="preview-scroll">
       <article className="preview-doc">
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={{
+            code(props) {
+              const { children, className, ...rest } = props;
+              const match = /language-(\w+)/.exec(className || '');
+              if (match && match[1] === 'mermaid') {
+                return <MermaidBlock chart={String(children).replace(/\n$/, '')} theme={theme} />;
+              }
+              return (
+                <code {...rest} className={className}>
+                  {children}
+                </code>
+              );
+            },
+          }}
+        >
           {content}
         </ReactMarkdown>
       </article>
@@ -87,12 +105,12 @@ function TypstPreview({ content }: { content: string }) {
   );
 }
 
-export default function PreviewPane({ content, mode }: { content: string; mode: DocMode }) {
+export default function PreviewPane({ content, mode, theme }: { content: string; mode: DocMode; theme?: 'dark' | 'light' }) {
   const md = useMemo(() => {
     if (mode === 'latex') return latexToReadable(content);
     if (mode === 'typst') return typstToReadable(content);
     return content;
   }, [content, mode]);
   if (mode === 'typst') return <TypstPreview content={content} />;
-  return <MarkdownPreview content={md} />;
+  return <MarkdownPreview content={md} theme={theme} />;
 }

@@ -7,6 +7,10 @@ import McpManager from './components/McpManager';
 import LiveModal from './components/LiveModal';
 import GithubPanel from './components/GithubPanel';
 import ShortcutsModal from './components/ShortcutsModal';
+import HistoryModal from './components/HistoryModal';
+import CitationsModal from './components/CitationsModal';
+import { type CitationEntry } from './lib/citations';
+import { saveSnapshot } from './lib/history';
 import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
 import { getDocStats, getDocumentOutline } from './lib/docUtils';
 import { PROVIDERS, type ProviderId } from './lib/aiGateway';
@@ -51,6 +55,15 @@ export default function App() {
   const [showMcp, setShowMcp] = useState(false);
   const [showGithub, setShowGithub] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showCitations, setShowCitations] = useState(false);
+  const [citations, setCitations] = useState<CitationEntry[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dexter-write:citations') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [showToc, setShowToc] = useState(true);
   const [showFiles, setShowFiles] = useState(true);
   const [zen, setZen] = useState<'none' | 'editor' | 'preview'>('none');
@@ -85,6 +98,20 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(LS_THEME, theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('dexter-write:citations', JSON.stringify(citations));
+  }, [citations]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const cur = filesRef.current.find((f) => f.id === activeIdRef.current);
+      if (cur && cur.content.trim()) {
+        saveSnapshot(cur.id, cur.name, cur.content, 'Auto periodic checkpoint').catch(() => {});
+      }
+    }, 4 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => { saveProject(files, activeId); }, [files, activeId]);
 
@@ -297,6 +324,34 @@ export default function App() {
     } catch { /* noop */ }
   }
 
+  function insertCitationTag(key: string) {
+    const tag = docMode === 'latex' ? `\\cite{${key}}` : `@${key}`;
+    const holder = editorRef.current as unknown as { _editor?: { getPosition: () => { lineNumber: number; column: number }; executeEdits: (src: string, ops: unknown[]) => void; focus: () => void }; _monaco?: { Range: new (...a: number[]) => unknown } } | null;
+    const ed = holder?._editor;
+    const monaco = holder?._monaco;
+    if (ed && monaco) {
+      const pos = ed.getPosition();
+      const Range = monaco.Range;
+      ed.executeEdits('citation', [{
+        range: new Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+        text: tag,
+        forceMoveMarkers: true,
+      }]);
+      ed.focus();
+    } else {
+      setDocContent(docContent + (docContent.endsWith(' ') ? '' : ' ') + tag);
+    }
+  }
+
+  function restoreSnapshotContent(newContent: string) {
+    if (active) {
+      saveSnapshot(active.id, active.name, docContent, 'Pre-restore checkpoint').catch(() => {});
+    }
+    setDocContent(newContent);
+    const sess = liveRef.current;
+    if (sess && active) sess.setContent(active.id, newContent);
+  }
+
   const keyStatus = apiKey ? '●' : '○';
 
   return (
@@ -325,6 +380,8 @@ export default function App() {
           <button className="btn xs" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">🤝 Go Live</button>
         )}
         <button className="btn xs" onClick={() => setShowGithub(true)} title="GitHub sync">🐙</button>
+        <button className="btn xs" onClick={() => setShowCitations(true)} title="BibTeX & Citation manager">📚{citations.length > 0 ? ` ${citations.length}` : ''}</button>
+        <button className="btn xs" onClick={() => setShowHistory(true)} title="Version history & checkpoints">⏱️</button>
         <button className="btn xs" onClick={() => setShowShortcuts(true)} title="Keyboard shortcuts & help">⌨️</button>
         <button className="btn xs" onClick={() => setShowToc(!showToc)} title="Table of contents">TOC</button>
         <button className="btn xs" onClick={() => setZen(zen === 'editor' ? 'none' : 'editor')}>Zen</button>
@@ -463,7 +520,7 @@ export default function App() {
                 ))}
               </nav>
             )}
-            <PreviewPane content={docContent} mode={docMode} />
+            <PreviewPane content={docContent} mode={docMode} theme={theme} />
           </section>
         )}
       </main>
@@ -512,6 +569,29 @@ export default function App() {
       )}
       {showShortcuts && (
         <ShortcutsModal onClose={() => setShowShortcuts(false)} />
+      )}
+      {showHistory && (
+        <HistoryModal
+          fileId={active?.id || ''}
+          fileName={active?.name || ''}
+          currentContent={docContent}
+          onRestore={restoreSnapshotContent}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
+      {showCitations && (
+        <CitationsModal
+          citations={citations}
+          onAddCitation={(c) => {
+            if (!citations.some((item) => item.key === c.key)) {
+              setCitations((prev) => [...prev, c]);
+            }
+          }}
+          onRemoveCitation={(key) => setCitations((prev) => prev.filter((c) => c.key !== key))}
+          onInsertCiteKey={insertCitationTag}
+          docMode={docMode}
+          onClose={() => setShowCitations(false)}
+        />
       )}
     </div>
   );

@@ -1,0 +1,17 @@
+{
+  "name": "Dexter Write",
+  "short_name": "DexterWrite",
+  "description": "The Open-Source, BYOK & MCP-Native Collaborative Document & Resume Platform",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#7c6cff",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
