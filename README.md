@@ -100,13 +100,57 @@ The AI doesn't just chat—**it directly inspects, patches, and typesets your do
 
 ---
 
+## 🐳 Self-Hosting with Docker
+
+You can self-host Dexter Write on any VPS, home server, or local machine using Docker:
+
+```bash
+# Clone the repository
+git clone https://github.com/MayureshTardekar/Dexter-Writer.git
+cd Dexter-Writer
+
+# Start using Docker Compose
+docker compose up -d
+```
+
+Open your browser at `http://localhost:3000`. The multi-stage Nginx container will serve the app with full client-side WASM, PWA offline caching, and sub-second load times.
+
+---
+
+## 🧪 Development & Testing
+
+```bash
+# Install dependencies
+npm install
+
+# Start local development server
+npm run dev
+
+# Run unit tests (Vitest)
+npm test
+
+# Run linter (Oxlint)
+npm run lint
+
+# Build production bundle
+npm run build
+```
+
+---
+
+## ✈️ 100% Offline Capability (PWA)
+
+Dexter Write features a built-in Service Worker (`public/sw.js`). Once loaded, all critical editor components, Monaco workers, KaTeX math fonts, and Typst WASM binaries are stored in your browser cache. You can write and edit papers on airplanes or with no network connection—your data never leaves your device.
+
+---
+
 ## 🧭 Documentation Directory
 
 For in-depth technical documentation, please refer to:
 - 📐 [**ARCHITECTURE.md**](./ARCHITECTURE.md) — Comprehensive technical architecture, data flows, and security model.
 - 📋 [**PRODUCT_SPEC.md**](./PRODUCT_SPEC.md) — Complete product requirements, feature specifications, and Overleaf parity checklist.
 - 🔌 [**MCP_SPEC.md**](./MCP_SPEC.md) — Model Context Protocol specifications, tool schemas, and external server bridging.
-- 🗺️ [**ROADMAP.md**](./ROADMAP.md) — Development phases from MVP to v2.0 collaborative cloud platform.
+- 🗺️ [**ROADMAP.md**](./ROADMAP.md) — Development milestones from MVP to v2.0 collaborative cloud platform.
 
 ---
 
@@ -114,3 +158,4 @@ For in-depth technical documentation, please refer to:
 
 Dexter Write is open-source under the **Apache-2.0 License**.  
 Contributions, feedback, and feature requests are welcome!
+

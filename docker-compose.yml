@@ -1,16 +1,11 @@
-# Dexter Write — self-hostable in one step.
-# Build + run:  docker compose up --build
-# Then open:    http://localhost:8080
-
 services:
   dexter-write:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: dexter-write
     ports:
-      - "8080:80"
-    environment:
-      # Optional: point collaboration at your own y-webrtc signaling server
-      # (comma-separated). Leave unset to use the public signaling servers.
-      - VITE_SIGNALING_URL=${VITE_SIGNALING_URL:-}
+      - "3000:80"
     restart: unless-stopped
+    environment:
+      - NODE_ENV=production

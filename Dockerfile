@@ -1,17 +1,40 @@
-# ---- build ----
-FROM node:22-alpine AS build
+# ==============================================================================
+# Dexter Write — Multi-Stage Production Dockerfile
+# Client-first, 100% serverless Overleaf alternative
+# ==============================================================================
+
+# Stage 1: Build the production bundle
+FROM node:22-alpine AS builder
+
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+
+# Install build dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source files
 COPY . .
-# Bake-time config (can also be provided via compose environment for rebuilds)
-ARG VITE_SIGNALING_URL=""
-ENV VITE_SIGNALING_URL=$VITE_SIGNALING_URL
+
+# Compile TypeScript and Vite production bundle
 RUN npm run build
 
-# ---- serve ----
-FROM nginx:alpine
+# Stage 2: Lightweight Nginx runner
+FROM nginx:alpine AS runner
+
+# Remove default welcome files
+RUN rm -rf /usr/share/nginx/html/*
+
+# Copy custom Nginx SPA configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+
+# Copy production build assets from builder stage
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Expose HTTP port 80
 EXPOSE 80
+
+# Basic health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
+
 CMD ["nginx", "-g", "daemon off;"]

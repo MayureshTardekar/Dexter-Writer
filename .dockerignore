@@ -1,7 +1,9 @@
 node_modules
 dist
 .git
-.gitignore
-Dockerfile
-docker-compose.yml
+.github
+.agents
+.gemini
 *.log
+.DS_Store
+Thumbs.db

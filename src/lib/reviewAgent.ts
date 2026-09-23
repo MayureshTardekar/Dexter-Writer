@@ -46,7 +46,7 @@ export const AUDIT_PRESETS: Array<{ id: AuditPreset; label: string; desc: string
   },
 ];
 
-function buildAuditPrompt(mode: DocMode, preset: AuditPreset, customGoal?: string): string {
+export function buildAuditPrompt(mode: DocMode, preset: AuditPreset, customGoal?: string): string {
   let criteria = '';
   if (preset === 'resume') {
     criteria = `
@@ -105,7 +105,7 @@ Important:
 - Provide actionable proposedText so the user or agent can auto-apply the fix.`;
 }
 
-function cleanJson(raw: string): string {
+export function cleanJson(raw: string): string {
   let s = raw.trim();
   if (s.startsWith('```json')) {
     s = s.slice(7);

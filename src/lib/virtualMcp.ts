@@ -40,6 +40,7 @@ export function insertContent(
 }
 
 export function replaceLines(content: string, startLine: number, endLine: number, newText: string): McpToolResult {
+  if (!content || content.length === 0) return { ok: false, message: 'Empty document' };
   const lines = content.split('\n');
   if (lines.length === 0) return { ok: false, message: 'Empty document' };
   const s = clamp(startLine, 1, lines.length);
@@ -63,11 +64,12 @@ export function executeVirtualTool(content: string, mode: DocMode, call: McpTool
     }
     case 'insert_content':
     case 'insert_text': {
-      const r = insertContent(content, Number(a.target_line ?? 1), (a.position as 'before' | 'after') ?? 'after', String(a.text ?? ''));
+      const r = insertContent(content, Number(a.target_line ?? 1), (a.position as 'before' | 'after') ?? 'after', String(a.text ?? a.content ?? ''));
       return r;
     }
     case 'replace_lines': {
-      return replaceLines(content, Number(a.start_line ?? 1), Number(a.end_line ?? 1), String(a.new_text ?? ''));
+      const newText = String(a.new_text ?? a.replacement_text ?? a.text ?? '');
+      return replaceLines(content, Number(a.start_line ?? 1), Number(a.end_line ?? 1), newText);
     }
     default:
       return { ok: false, message: `Unknown tool: ${call.name}` };

@@ -8,63 +8,63 @@ This document outlines the phased development roadmap, milestones, and technical
 
 ```
   ┌─────────────────────────────────────────────────────────────┐
-  │ Phase 1: MVP (Minimum Viable Product)                       │
+  │ Phase 1: MVP (Minimum Viable Product)                 [COMPLETED] │
   │ Core 3-pane UI + BYOK + Virtual MCP + Dual Editor + Export │
   └──────────────────────────────┬──────────────────────────────┘
                                  │
                                  ▼
   ┌─────────────────────────────────────────────────────────────┐
-  │ Phase 2: v1.0 (Power & Typesetting)                         │
+  │ Phase 2: v1.0 (Power & Typesetting)                   [COMPLETED] │
   │ Typst WASM Engine + External MCP UI + Multi-File Tabs       │
   └──────────────────────────────┬──────────────────────────────┘
                                  │
                                  ▼
   ┌─────────────────────────────────────────────────────────────┐
-  │ Phase 3: v2.0 (Collaborative Cloud & Git Sync)              │
-  │ Real-Time Yjs Collaboration + GitHub Git Sync + Docker Hub  │
+  │ Phase 3: v2.0 (Collaboration, CI/CD & Offline Engine) [COMPLETED] │
+  │ Yjs WebRTC + Git Sync + Review Agent + PWA + Docker + Vitest│
   └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Phase 1: MVP (Current Phase)
+## 🚀 Phase 1: MVP (Completed)
 
 **Objective**: Deliver a complete, functional, client-side open-source application that solves the core problem of AI-powered document authoring with zero server costs and zero data lock-in.
 
 ### Deliverables:
 - [x] **Project Architecture & Specifications** (`README.md`, `ARCHITECTURE.md`, `PRODUCT_SPEC.md`, `MCP_SPEC.md`, `ROADMAP.md`).
-- [ ] **Modern 3-Pane Workspace Shell**:
-  - Resizable split-pane layout: [ AI Playground \| Monaco Editor \| Live Preview ].
+- [x] **Modern 3-Pane Workspace Shell**:
+  - Resizable split-pane layout: [ AI Playground | Monaco Editor | Live Preview ].
   - Dark Mode and Light Mode theme toggle.
-- [ ] **BYOK Security Vault**:
-  - Encrypted browser local storage for API keys.
+- [x] **BYOK Security Vault**:
+  - Encrypted browser local storage (Web Crypto AES-GCM) for API keys.
   - Multi-provider support: Google Gemini, OpenAI, Anthropic, and local Ollama (`http://localhost:11434`).
-- [ ] **Dual-Mode Document Editor (Monaco)**:
+- [x] **Dual-Mode Document Editor (Monaco)**:
   - Markdown (`.md`) and LaTeX (`.tex`) syntax highlighting.
   - Line numbers, code folding, find & replace (`Ctrl+F`).
-- [ ] **Virtual MCP Document Server**:
+- [x] **Virtual MCP Document Server**:
   - In-browser tool execution loop: `read_document_content`, `insert_content`, `replace_lines`, `get_document_outline`.
   - Atomic edits preserving Monaco `Ctrl+Z` undo history.
-- [ ] **AI Playground with Voice Input**:
+- [x] **AI Playground with Voice Input**:
   - Conversational chat sidebar retaining document context.
   - Web Speech API microphone integration for voice-to-text dictation.
   - Floating "Ask AI about selection" trigger.
-- [ ] **Live Preview with Mathematical Typography**:
+- [x] **Live Preview with Mathematical Typography**:
   - Real-time Markdown rendering (GitHub Flavored Markdown).
   - KaTeX math engine for inline (`$E=mc^2$`) and block equations.
-- [ ] **Overleaf Features**:
+- [x] **Overleaf Features**:
   - Document Outline / Table of Contents navigation bar.
   - Live Word and Character count metrics.
-- [ ] **Universal Multi-Format Export**:
+- [x] **Universal Multi-Format Export**:
   - Export to **PDF** (print-styled engine), **LaTeX (`.tex`)**, **Markdown (`.md`)**, **Styled HTML (`.html`)**, and **Plain Text (`.txt`)**.
-- [ ] **Built-in Starter Templates**:
+- [x] **Built-in Starter Templates**:
   - Software Engineer ATS Resume (Markdown & LaTeX).
   - Academic Research Paper (LaTeX).
   - Technical Product & API Documentation (Markdown).
 
 ---
 
-## ⚡ Phase 2: v1.0 (Advanced Typesetting & Extensibility)
+## ⚡ Phase 2: v1.0 (Advanced Typesetting & Extensibility) (Completed)
 
 **Objective**: Upgrade typesetting performance to sub-second PDF generation and expose external MCP connectivity.
 
@@ -84,18 +84,33 @@ This document outlines the phased development roadmap, milestones, and technical
 
 ---
 
-## 🌐 Phase 3: v2.0 (Real-Time Collaboration & Cloud Ecosystem)
+## 🌐 Phase 3: v2.0 (Real-Time Collaboration, Offline & Quality Engine) (Completed)
 
-**Objective**: Complete Overleaf feature parity with real-time multi-user collaboration and automated version control.
+**Objective**: Complete Overleaf feature parity with real-time multi-user collaboration, automated version control, and production self-hosting.
 
 ### Deliverables:
 - [x] **Peer-to-Peer & WebRTC Collaboration**:
   - Decentralized real-time multiplayer editing using **Yjs CRDTs**.
   - Invite collaborators via a simple URL room link with zero central database requirements.
 - [x] **Native GitHub Git Sync**:
-  - OAuth login with GitHub to directly clone, commit, branch, and push LaTeX/Markdown repositories.
-- [x] **One-Click Self-Hosting**:
-  - Official Dockerfile and Docker Compose configurations for self-hosting on private VPS or home servers.
+  - OAuth and personal access token login with GitHub to directly clone, commit, branch, and push LaTeX/Markdown repositories via `isomorphic-git`.
+- [x] **Autonomous Document Review Agent**:
+  - Multi-pass rule audit for ATS Resumes, Academic Papers (LaTeX math delimiters), and Technical Documentation.
+  - 1-click batch auto-fixing in descending line order.
+- [x] **Citations & Bibliography Manager**:
+  - BibTeX parser, auto-formatting, in-text insertion (`\cite{}` and `[@]`), and live Crossref DOI search.
+- [x] **Continuous Version History**:
+  - IndexedDB snapshot engine capturing edits with time-travel inspection and instant rollback.
+- [x] **Interactive Mermaid.js Diagramming**:
+  - Live flowchart, sequence, and architecture diagram rendering with automatic dark/light theme switching.
+- [x] **100% Offline PWA & Service Worker**:
+  - Progressive Web App with `sw.js` caching shell assets, KaTeX fonts, and Monaco scripts for flight/disconnected usage.
+- [x] **Vitest Automated Test Suite**:
+  - Unit tests covering `virtualMcp`, `citations`, `lineDiff`, and `reviewAgent`.
+- [x] **One-Click Self-Hosting (Docker)**:
+  - Production-ready multi-stage `Dockerfile`, `docker-compose.yml`, and optimized `nginx.conf`.
+- [x] **Continuous Deployment**:
+  - GitHub Actions workflow (`deploy.yml`) for automated builds and deployment to GitHub Pages.
 
 ---
 
@@ -103,10 +118,10 @@ This document outlines the phased development roadmap, milestones, and technical
 
 Dexter Write is built for developers, researchers, and writers worldwide.
 
-### Ways to Contribute:
-1. **Templates**: Contribute new LaTeX and Markdown templates (resumes, thesis formats, grant proposals).
-2. **MCP Tool Integrations**: Add connectors for academic databases (arXiv, Zotero) and developer tools.
-3. **Localization**: Help translate the user interface into multiple languages.
+### Future Horizon & Community Ideas:
+1. **Zotero & arXiv Direct Sync**: Two-way library synchronization for academic researchers.
+2. **Community Templates Registry**: User-contributed resume formats and conference paper templates.
+3. **Multi-Language UI**: Localization for global developer and academic communities.
 
 ---
 
