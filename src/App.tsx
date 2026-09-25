@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import EditorPane from './components/EditorPane';
-import PreviewPane from './components/PreviewPane';
+import PreviewPane, { type SourceJump } from './components/PreviewPane';
 import AiPlayground, { type SelectionCtx } from './components/AiPlayground';
 import ByokModal from './components/ByokModal';
 import McpManager from './components/McpManager';
@@ -73,9 +73,79 @@ export default function App() {
   });
   const [showToc, setShowToc] = useState(true);
   const [showFiles, setShowFiles] = useState(true);
-  const [zen, setZen] = useState<'none' | 'editor' | 'preview'>('none');
-  const [leftPct, setLeftPct] = useState(27);
-  const [rightPct, setRightPct] = useState(36);
+  // Dynamic layout: any pane can be maximized; side panes can be hidden
+  // (center editor always stays). Persisted across reloads.
+  type PaneId = 'left' | 'center' | 'right';
+  const [hidden, setHidden] = useState<{ left: boolean; right: boolean }>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('dexter-write:layout') || '{}') as { hidden?: { left: boolean; right: boolean } };
+      return { left: !!raw.hidden?.left, right: !!raw.hidden?.right };
+    } catch {
+      return { left: false, right: false };
+    }
+  });
+  const [maximized, setMaximized] = useState<PaneId | null>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('dexter-write:layout') || '{}') as { maximized?: PaneId | null };
+      return raw.maximized === 'left' || raw.maximized === 'center' || raw.maximized === 'right' ? raw.maximized : null;
+    } catch {
+      return null;
+    }
+  });
+  const [leftPct, setLeftPct] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('dexter-write:layout') || '{}') as { leftPct?: number };
+      return typeof raw.leftPct === 'number' ? Math.min(40, Math.max(18, raw.leftPct)) : 27;
+    } catch {
+      return 27;
+    }
+  });
+  const [rightPct, setRightPct] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('dexter-write:layout') || '{}') as { rightPct?: number };
+      return typeof raw.rightPct === 'number' ? Math.min(50, Math.max(22, raw.rightPct)) : 36;
+    } catch {
+      return 36;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('dexter-write:layout', JSON.stringify({ leftPct, rightPct, hidden, maximized }));
+    } catch { /* ignore */ }
+  }, [leftPct, rightPct, hidden, maximized]);
+
+  const isVisible = (id: PaneId) => (maximized ? maximized === id : id === 'center' ? true : !hidden[id]);
+
+  function syncMobileView(id: PaneId) {
+    setMobileView(id === 'left' ? 'chat' : id === 'right' ? 'preview' : 'editor');
+  }
+
+  function toggleMax(id: PaneId) {
+    setMaximized((m) => (m === id ? null : id));
+    syncMobileView(id);
+  }
+
+  function applyPreset(p: 'split' | 'chat' | 'editor' | 'preview') {
+    if (p === 'split') {
+      setHidden({ left: false, right: false });
+      setMaximized(null);
+    } else {
+      const id: PaneId = p === 'chat' ? 'left' : p === 'editor' ? 'center' : 'right';
+      setMaximized(id);
+      syncMobileView(id);
+    }
+  }
+
+  function hideSide(side: 'left' | 'right') {
+    setHidden((h) => ({ ...h, [side]: true }));
+    if (mobileView === (side === 'left' ? 'chat' : 'preview')) setMobileView('editor');
+  }
+
+  function resetSplit() {
+    setLeftPct(27);
+    setRightPct(36);
+  }
   const [selection, setSelection] = useState<SelectionCtx | null>(null);
   const [servers, setServersState] = useState<ExternalMcpServer[]>(() => loadServers());
   const [newName, setNewName] = useState('');
@@ -90,6 +160,24 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileView, setMobileView] = useState<'chat' | 'editor' | 'preview'>('editor');
   const [pendingImport, setPendingImport] = useState<RepoDoc[] | null>(null);
+  const [online, setOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+
+  useEffect(() => {
+    const up = () => {
+      setOnline(true);
+      toast('Back online', 'success', 2000);
+    };
+    const down = () => {
+      setOnline(false);
+      toast('Offline — local editing continues, sync paused', 'error', 3500);
+    };
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => {
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', down);
+    };
+  }, []);
   const editorRef = useRef<unknown>(null);
   const dragRef = useRef<{ kind: 'left' | 'right'; startX: number; startL: number; startR: number } | null>(null);
 
@@ -365,12 +453,59 @@ export default function App() {
   }
 
   function jumpToLine(line: number) {
-    const holder = editorRef.current as unknown as { _editor?: { revealLineInCenter: (n: number) => void; setPosition: (p: { lineNumber: number; column: number }) => void; focus: () => void } } | null;
+    const holder = editorRef.current as unknown as {
+      _editor?: {
+        revealLineInCenter: (n: number) => void;
+        setPosition: (p: { lineNumber: number; column: number }) => void;
+        focus: () => void;
+        getModel: () => { getLineCount: () => number } | null;
+        deltaDecorations: (oldIds: string[], decs: unknown[]) => string[];
+      };
+      _monaco?: { Range: new (...a: number[]) => unknown };
+    } | null;
     try {
-      holder?._editor?.revealLineInCenter(line);
-      holder?._editor?.setPosition({ lineNumber: line, column: 1 });
-      holder?._editor?.focus();
+      const ed = holder?._editor;
+      if (!ed) return;
+      const total = ed.getModel()?.getLineCount() ?? Number.MAX_SAFE_INTEGER;
+      const target = Math.min(Math.max(1, line), total);
+      ed.revealLineInCenter(target);
+      ed.setPosition({ lineNumber: target, column: 1 });
+      // Flash-highlight the landed line so the eye finds it instantly.
+      const monaco = holder?._monaco;
+      if (monaco) {
+        try {
+          const ids = ed.deltaDecorations([], [{
+            range: new monaco.Range(target, 1, target, 1),
+            options: { isWholeLine: true, className: 'dexter-jump-line' },
+          }]);
+          setTimeout(() => {
+            try { ed.deltaDecorations(ids, []); } catch { /* noop */ }
+          }, 2600);
+        } catch { /* decoration is best-effort */ }
+      }
+      ed.focus();
     } catch { /* noop */ }
+  }
+
+  function handleSourceJump(info: SourceJump) {
+    if (docMode === 'markdown' && info.line) {
+      jumpToLine(info.line);
+      return;
+    }
+    // LaTeX / Typst previews render transformed text: fuzzy-match the
+    // clicked text against original source lines instead.
+    const needle = info.text.trim().replace(/\s+/g, ' ');
+    if (!needle) return;
+    const lines = docContent.split('\n');
+    for (let len = Math.min(32, needle.length); len >= 8; len -= 6) {
+      const part = needle.slice(0, len).toLowerCase();
+      const idx = lines.findIndex((l) => l.toLowerCase().includes(part));
+      if (idx >= 0) {
+        jumpToLine(idx + 1);
+        return;
+      }
+    }
+    toast('No matching source line found', 'info', 2200);
   }
 
   function insertCitationTag(key: string) {
@@ -427,7 +562,12 @@ export default function App() {
       { id: 'theme', group: 'View', label: `Theme: switch to ${theme === 'dark' ? 'light' : 'dark'}`, icon: theme === 'dark' ? 'sun' : 'moon', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
       { id: 'toc', group: 'View', label: `${showToc ? 'Hide' : 'Show'} table of contents`, icon: 'list', run: () => setShowToc((v) => !v) },
       { id: 'files', group: 'View', label: `${showFiles ? 'Hide' : 'Show'} file explorer`, icon: 'files', run: () => setShowFiles((v) => !v) },
-      { id: 'zen', group: 'View', label: zen === 'editor' ? 'Exit Zen mode' : 'Zen: focus editor', icon: 'expand', run: () => setZen(zen === 'editor' ? 'none' : 'editor') },
+      { id: 'layout-split', group: 'Layout', label: 'Triple split view', icon: 'layoutSplit', run: () => applyPreset('split') },
+      { id: 'layout-chat', group: 'Layout', label: 'Focus AI playground', icon: 'layoutLeft', run: () => applyPreset('chat') },
+      { id: 'layout-editor', group: 'Layout', label: 'Focus editor', icon: 'layoutCenter', run: () => applyPreset('editor') },
+      { id: 'layout-preview', group: 'Layout', label: 'Focus preview', icon: 'layoutRight', run: () => applyPreset('preview') },
+      { id: 'toggle-chat', group: 'Layout', label: `${hidden.left ? 'Show' : 'Hide'} AI playground`, icon: 'sparkles', run: () => (hidden.left ? setHidden((h) => ({ ...h, left: false })) : hideSide('left')) },
+      { id: 'toggle-preview', group: 'Layout', label: `${hidden.right ? 'Show' : 'Hide'} preview`, icon: 'book', run: () => (hidden.right ? setHidden((h) => ({ ...h, right: false })) : hideSide('right')) },
     );
     acts.push(
       { id: 'open-keys', group: 'Open', label: 'API keys (BYOK vault)', icon: 'key', run: () => setShowByok(true) },
@@ -466,7 +606,7 @@ export default function App() {
     }
     return acts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, docMode, docContent, theme, showToc, showFiles, zen, live, applyTemplateToActive, switchMode]);
+  }, [files, docMode, docContent, theme, showToc, showFiles, live, maximized, hidden, applyTemplateToActive, switchMode]);
 
   return (
     <div className="app">
@@ -531,9 +671,36 @@ export default function App() {
           <button className="btn xs" onClick={() => setShowToc(!showToc)} title="Table of contents">
             <Icon name="list" size={14} /><span className="btn-label optional">TOC</span>
           </button>
-          <button className="btn xs" onClick={() => setZen(zen === 'editor' ? 'none' : 'editor')} title="Zen editor">
-            <Icon name="expand" size={14} /><span className="btn-label optional">Zen</span>
-          </button>
+          <div className="seg" role="group" aria-label="Layout presets">
+            <button
+              className={maximized === null && !hidden.left && !hidden.right ? 'active' : ''}
+              onClick={() => applyPreset('split')}
+              title="Triple split: chat, editor, preview"
+            >
+              <Icon name="layoutSplit" size={14} />
+            </button>
+            <button
+              className={maximized === 'left' ? 'active' : ''}
+              onClick={() => applyPreset('chat')}
+              title="Focus AI playground"
+            >
+              <Icon name="layoutLeft" size={14} />
+            </button>
+            <button
+              className={maximized === 'center' ? 'active' : ''}
+              onClick={() => applyPreset('editor')}
+              title="Focus editor"
+            >
+              <Icon name="layoutCenter" size={14} />
+            </button>
+            <button
+              className={maximized === 'right' ? 'active' : ''}
+              onClick={() => applyPreset('preview')}
+              title="Focus preview"
+            >
+              <Icon name="layoutRight" size={14} />
+            </button>
+          </div>
           <button className="btn xs icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
           </button>
@@ -570,9 +737,20 @@ export default function App() {
       </header>
 
       <main className="panes" data-view={mobileView}>
-        {zen === 'none' && (
-          <section className="pane left" style={{ width: `${leftPct}%` }}>
-            <div className="pane-head">AI Playground <span className="muted small">{PROVIDERS.find((p) => p.id === provider)?.label}</span></div>
+        {isVisible('left') ? (
+          <section className="pane left" style={maximized ? { flex: 1 } : { width: `${leftPct}%` }}>
+            <div className="pane-head">
+              <span className="pane-title">AI Playground</span>
+              <span className="pane-actions">
+                <span className="muted small hide-sm">{PROVIDERS.find((p) => p.id === provider)?.label}</span>
+                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('left')} title={maximized === 'left' ? 'Restore split view' : 'Maximize playground'}>
+                  <Icon name={maximized === 'left' ? 'minimize' : 'expand'} size={13} />
+                </button>
+                <button className="btn xs ghost icon-btn" onClick={() => hideSide('left')} title="Hide playground">
+                  <Icon name="chevronsLeft" size={13} />
+                </button>
+              </span>
+            </div>
             <AiPlayground
               docContent={docContent}
               setDocContent={setDocContent}
@@ -589,14 +767,25 @@ export default function App() {
               onOpenReview={() => setShowReview(true)}
             />
           </section>
+        ) : maximized === null && (
+          <button className="rail rail-left" onClick={() => setHidden((h) => ({ ...h, left: false }))} title="Show AI playground">
+            <Icon name="sparkles" size={15} />
+          </button>
         )}
-        {zen === 'none' && <div className="divider" onMouseDown={(e) => onDragStart('left', e)} />}
+        {maximized === null && isVisible('left') && (
+          <div className="divider" onMouseDown={(e) => onDragStart('left', e)} onDoubleClick={resetSplit} title="Drag to resize · double-click to reset" />
+        )}
 
-        {(zen === 'none' || zen === 'editor') && (
+        {(isVisible('center')) && (
           <section className="pane center" style={{ flex: 1 }}>
             <div className="pane-head">
-              <span>Editor</span>
-              <span className="muted small">{docMode} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
+              <span className="pane-title">Editor</span>
+              <span className="pane-actions">
+                <span className="muted small hide-sm">{docMode} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
+                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('center')} title={maximized === 'center' ? 'Restore split view' : 'Maximize editor'}>
+                  <Icon name={maximized === 'center' ? 'minimize' : 'expand'} size={13} />
+                </button>
+              </span>
             </div>
             {showFiles && (
               <div className="filebar">
@@ -658,13 +847,22 @@ export default function App() {
             </div>
           </section>
         )}
-        {zen === 'none' && <div className="divider" onMouseDown={(e) => onDragStart('right', e)} />}
+        {maximized === null && isVisible('right') && (
+          <div className="divider" onMouseDown={(e) => onDragStart('right', e)} onDoubleClick={resetSplit} title="Drag to resize · double-click to reset" />
+        )}
 
-        {(zen === 'none' || zen === 'preview') && (
-          <section className="pane right" style={zen === 'preview' ? { flex: 1 } : { width: `${rightPct}%` }}>
+        {isVisible('right') ? (
+          <section className="pane right" style={maximized ? { flex: 1 } : { width: `${rightPct}%` }}>
             <div className="pane-head">
-              Preview
-              <button className="btn xs ghost" onClick={() => setZen(zen === 'preview' ? 'none' : 'preview')}>{zen === 'preview' ? 'Exit' : 'Expand'}</button>
+              <span className="pane-title">Preview</span>
+              <span className="pane-actions">
+                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('right')} title={maximized === 'right' ? 'Restore split view' : 'Maximize preview'}>
+                  <Icon name={maximized === 'right' ? 'minimize' : 'expand'} size={13} />
+                </button>
+                <button className="btn xs ghost icon-btn" onClick={() => hideSide('right')} title="Hide preview">
+                  <Icon name="chevronsRight" size={13} />
+                </button>
+              </span>
             </div>
             {showToc && (
               <nav className="toc" aria-label="Document outline">
@@ -676,8 +874,12 @@ export default function App() {
                 ))}
               </nav>
             )}
-            <PreviewPane content={docContent} mode={docMode} theme={theme} />
+            <PreviewPane content={docContent} mode={docMode} theme={theme} onSourceJump={handleSourceJump} />
           </section>
+        ) : maximized === null && (
+          <button className="rail rail-right" onClick={() => setHidden((h) => ({ ...h, right: false }))} title="Show preview">
+            <Icon name="book" size={15} />
+          </button>
         )}
       </main>
 
@@ -704,6 +906,10 @@ export default function App() {
         {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
         <span className="stat hide-mobile">{provider}:{model}</span>
         <span className="stat">{apiKey ? 'Key saved' : provider === 'ollama' ? 'Local mode' : 'No key'}</span>
+        <span className="stat" title={online ? 'Online' : 'Offline — local mode'}>
+          <span className={`offline-dot${online ? '' : ' off'}`} />
+          {online ? 'Online' : 'Offline'}
+        </span>
       </footer>
 
       {showByok && (

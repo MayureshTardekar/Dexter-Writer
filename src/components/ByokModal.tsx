@@ -24,7 +24,7 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="BYOK settings">
-        <ModalHeader icon="key" title="BYOK Security Vault" sub="Keys are AES-GCM encrypted in localStorage. Requests go direct to providers — no middleman." onClose={onClose} />
+        <ModalHeader icon="key" title="BYOK Security Vault" category="Security" sub="Keys are AES-GCM encrypted in localStorage. Requests go direct to providers — no middleman." onClose={onClose} />
         <div className="modal-body">
         <label>Provider</label>
         <select value={provider} onChange={(e) => { setProvider(e.target.value as ProviderId); const d = PROVIDERS.find((p) => p.id === e.target.value)!; setModel(d.defaultModel); }}>

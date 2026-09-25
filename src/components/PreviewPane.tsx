@@ -1,15 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { latexToReadable, typstToReadable } from '../lib/docUtils';
+import { rehypeSourceLine } from '../lib/rehypeSourceLine';
 import { renderTypstSvg, warmupTypstEngine } from '../lib/typstEngine';
 import type { DocMode } from '../lib/templates';
 import MermaidBlock from './MermaidBlock';
 
-function MarkdownPreview({ content, theme = 'dark' }: { content: string; theme?: 'dark' | 'light' }) {
+/** Inverse-search payload: exact line when known, else text to fuzzy-match. */
+export interface SourceJump {
+  line?: number;
+  text: string;
+}
+
+function handlePreviewDblClick(e: RMouseEvent, allowLine: boolean, onSourceJump?: (info: SourceJump) => void): void {
+  if (!onSourceJump) return;
+  const t = e.target as HTMLElement;
+  const lined = t.closest?.('[data-source-line]') as HTMLElement | null;
+  if (allowLine && lined?.dataset.sourceLine) {
+    onSourceJump({ line: Number(lined.dataset.sourceLine), text: (lined.textContent || '').slice(0, 120) });
+    return;
+  }
+  const block = t.closest?.('h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,pre') as HTMLElement | null;
+  const text = ((block?.textContent || t.textContent) || '').trim();
+  if (text) onSourceJump({ text: text.slice(0, 120) });
+}
+
+function MarkdownPreview({ content, theme = 'dark', sourceMap = true, onSourceJump }: { content: string; theme?: 'dark' | 'light'; sourceMap?: boolean; onSourceJump?: (info: SourceJump) => void }) {
+  const rehypePlugins = useMemo(() => (sourceMap ? [rehypeKatex, rehypeSourceLine] : [rehypeKatex]), [sourceMap]);
   if (!content.trim()) {
     return (
       <div className="preview-scroll">
@@ -21,11 +42,11 @@ function MarkdownPreview({ content, theme = 'dark' }: { content: string; theme?:
     );
   }
   return (
-    <div className="preview-scroll">
+    <div className="preview-scroll" onDoubleClick={(e) => handlePreviewDblClick(e, sourceMap, onSourceJump)} title="Double-click to jump to source">
       <article className="preview-doc">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
+          rehypePlugins={rehypePlugins}
           components={{
             code(props) {
               const { children, className, ...rest } = props;
@@ -48,7 +69,7 @@ function MarkdownPreview({ content, theme = 'dark' }: { content: string; theme?:
   );
 }
 
-function TypstPreview({ content }: { content: string }) {
+function TypstPreview({ content, onSourceJump }: { content: string; onSourceJump?: (info: SourceJump) => void }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -97,13 +118,14 @@ function TypstPreview({ content }: { content: string }) {
           <pre className="typst-diag-list">{diagnostics.slice(0, 8).join('\n')}</pre>
         )}
         {/* eslint-disable-next-line react/no-danger */}
-        <div className="typst-svg" dangerouslySetInnerHTML={{ __html: svg }} />
+        <div className="typst-svg" dangerouslySetInnerHTML={{ __html: svg }} onDoubleClick={(e) => handlePreviewDblClick(e, false, onSourceJump)} title="Double-click to jump to source" />
       </div>
     );
   }
   // Fallback: readable markdown render while engine loads or on error
+  // (line numbers refer to transformed text, so only text search applies)
   return (
-    <div className="preview-scroll">
+    <div className="preview-scroll" onDoubleClick={(e) => handlePreviewDblClick(e, false, onSourceJump)} title="Double-click to jump to source">
       <div className="typst-status muted small">{compiling ? '⟳ loading Typst engine…' : error ? `❌ ${error}` : ''}</div>
       {diagnostics.length > 0 && <pre className="typst-diag-list">{diagnostics.slice(0, 8).join('\n')}</pre>}
       <article className="preview-doc">
@@ -115,12 +137,14 @@ function TypstPreview({ content }: { content: string }) {
   );
 }
 
-export default function PreviewPane({ content, mode, theme }: { content: string; mode: DocMode; theme?: 'dark' | 'light' }) {
+export default function PreviewPane({ content, mode, theme, onSourceJump }: { content: string; mode: DocMode; theme?: 'dark' | 'light'; onSourceJump?: (info: SourceJump) => void }) {
   const md = useMemo(() => {
     if (mode === 'latex') return latexToReadable(content);
     if (mode === 'typst') return typstToReadable(content);
     return content;
   }, [content, mode]);
-  if (mode === 'typst') return <TypstPreview content={content} />;
-  return <MarkdownPreview content={md} theme={theme} />;
+  if (mode === 'typst') return <TypstPreview content={content} onSourceJump={onSourceJump} />;
+  // LaTeX preview is transformed text: line numbers don't map back, use text search.
+  const exact = mode === 'markdown';
+  return <MarkdownPreview content={md} theme={theme} sourceMap={exact} onSourceJump={onSourceJump} />;
 }

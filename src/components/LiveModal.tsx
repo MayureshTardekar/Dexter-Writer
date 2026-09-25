@@ -23,6 +23,7 @@ export default function LiveModal({ initialRoom, initialPassword, initialName, b
         <ModalHeader
           icon="sparkles"
           title="Live Collaboration"
+          category="P2P"
           sub="Peer-to-peer via WebRTC + Yjs CRDTs. Signaling only introduces peers — document content never touches a server. Optional password enables end-to-end encryption."
           onClose={onClose}
         />

@@ -77,6 +77,7 @@ export default function McpManager({ servers, setServers, onClose }: Props) {
         <ModalHeader
           icon="plug"
           title="External MCP Servers"
+          category="AI Tools"
           sub="Connect remote MCP servers over Streamable HTTP or legacy SSE. The AI can call enabled tools — each call asks permission first unless set to always-allow."
           onClose={onClose}
         />

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import { applyHunks, computeHunks, hunkLabel } from '../lib/lineDiff';
 import { registerTypstLanguage } from '../lib/monacoTypst';
+import { DEXTER_DARK_THEME, DEXTER_LIGHT_THEME, MONACO_FONT, registerDexterThemes } from '../lib/monacoTheme';
 import ModalHeader from './ModalHeader';
 
 interface Props {
@@ -36,6 +37,7 @@ export default function DiffReviewModal({ summary, before, after, language, them
         <ModalHeader
           icon="fileText"
           title={summary}
+          category="Review"
           sub={`${accepted.size}/${changeHunks.length} chunks accepted · green = proposed, red = current`}
           onClose={onClose}
         />
@@ -47,9 +49,12 @@ export default function DiffReviewModal({ summary, before, after, language, them
               language={language}
               original={before}
               modified={preview}
-              theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-              beforeMount={(monaco) => registerTypstLanguage(monaco)}
-              options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontSize: 12.5, wordWrap: 'on', scrollBeyondLastLine: false }}
+              theme={theme === 'dark' ? DEXTER_DARK_THEME : DEXTER_LIGHT_THEME}
+              beforeMount={(monaco) => {
+                registerTypstLanguage(monaco);
+                registerDexterThemes(monaco);
+              }}
+              options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 12.5, wordWrap: 'on', scrollBeyondLastLine: false }}
             />
           </div>
           <aside className="hunk-list">

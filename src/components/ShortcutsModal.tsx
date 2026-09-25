@@ -6,12 +6,16 @@ interface Props {
 
 export default function ShortcutsModal({ onClose }: Props) {
   const shortcuts = [
-    { key: 'Ctrl/⌘ + K', desc: 'Command palette — files, templates, export, actions' },
+    { key: 'Ctrl/⌘ + K', desc: 'Command palette — files, templates, layout, export, actions' },
+    { key: 'Layout presets', desc: 'Toolbar icons or palette: split, focus chat / editor / preview' },
+    { key: 'Pane headers', desc: 'Maximize or hide any pane; hidden panes reopen from the edge rails' },
+    { key: 'Double-click divider', desc: 'Reset pane sizes to defaults' },
     { key: 'Ctrl/⌘ + S', desc: 'Project is autosaved locally to browser storage' },
     { key: 'Ctrl/⌘ + Z', desc: 'Undo manual and AI-applied edits in the editor' },
     { key: 'Ctrl/⌘ + F', desc: 'Find & replace in the active document' },
     { key: 'Enter', desc: 'Send prompt to the AI playground' },
     { key: 'Ctrl + Enter', desc: 'Insert a newline in the AI prompt box' },
+    { key: 'Double-click preview', desc: 'Inverse search — jump to the source line in the editor' },
     { key: 'Esc', desc: 'Close the topmost dialog' },
     { key: 'Ctrl/⌘ + P', desc: 'Print / export the document as PDF' },
   ];

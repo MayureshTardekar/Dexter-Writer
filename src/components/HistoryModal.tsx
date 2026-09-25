@@ -79,6 +79,7 @@ export default function HistoryModal({
         <ModalHeader
           icon="history"
           title="Document History & Snapshots"
+          category="Versions"
           sub={fileName ? <>File: <strong>{fileName}</strong> · time-travel and restore previous versions</> : 'Time-travel and restore previous versions'}
           onClose={onClose}
         />

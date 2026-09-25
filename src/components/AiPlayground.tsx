@@ -370,8 +370,19 @@ export default function AiPlayground({
             )}
           </div>
         ))}
-        {sending && <div className="bubble assistant"><div className="bubble-text typing">Thinking + running MCP tools</div></div>}
+        {sending && (
+          <div className="bubble assistant">
+            <div className="shimmer-wrap"><div className="shimmer-bar" /></div>
+            <div className="bubble-text typing">Thinking + running MCP tools</div>
+          </div>
+        )}
       </div>
+      {listening && (
+        <div className="voice-live" role="status">
+          <span className="radar" />
+          <span>Listening… speak now</span>
+        </div>
+      )}
       <div className="chat-input">
         <button className={`btn icon-btn ${listening ? 'rec' : ''}`} onClick={toggleVoice} title="Voice to document" aria-label="Voice input">
           <Icon name="mic" size={15} />
@@ -406,7 +417,7 @@ export default function AiPlayground({
       {permReq && (
         <div className="modal-backdrop" role="dialog" aria-label="MCP permission request">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <ModalHeader icon="plug" title="Allow MCP tool call?" sub={`${permReq.serverName} → ${permReq.toolName}`} onClose={() => resolvePerm('deny')} />
+            <ModalHeader icon="plug" title="Allow MCP tool call?" category="Permissions" sub={`${permReq.serverName} → ${permReq.toolName}`} onClose={() => resolvePerm('deny')} />
             <div className="modal-body">
               <pre className="perm-args">{JSON.stringify(permReq.args, null, 2).slice(0, 1500)}</pre>
             </div>

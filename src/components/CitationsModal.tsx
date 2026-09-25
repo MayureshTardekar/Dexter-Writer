@@ -83,6 +83,7 @@ export default function CitationsModal({
         <ModalHeader
           icon="book"
           title="BibTeX & Citations Manager"
+          category="Research"
           sub="Search papers, generate BibTeX, and insert citations"
           onClose={onClose}
         />

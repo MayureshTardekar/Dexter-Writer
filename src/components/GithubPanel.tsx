@@ -167,7 +167,7 @@ export default function GithubPanel({ files, onImportFiles, onClose }: Props) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="GitHub sync">
-        <ModalHeader icon="github" title="GitHub Sync" sub={user ? `Signed in as ${user.login}` : 'Clone, commit and push repositories directly from the browser.'} onClose={onClose} />
+        <ModalHeader icon="github" title="GitHub Sync" category="Sync" sub={user ? `Signed in as ${user.login}` : 'Clone, commit and push repositories directly from the browser.'} onClose={onClose} />
         <div className="modal-body">
         <div className="seg" style={{ alignSelf: 'flex-start' }}>
           <button className={tab === 'connect' ? 'active' : ''} onClick={() => setTab('connect')}>Connect</button>

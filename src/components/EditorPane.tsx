@@ -2,6 +2,7 @@ import { useEffect, useRef, type MutableRefObject } from 'react';
 import Editor, { type EditorProps, type OnMount } from '@monaco-editor/react';
 import type { DocMode } from '../lib/templates';
 import { monacoLanguageFor, registerTypstLanguage } from '../lib/monacoTypst';
+import { DEXTER_DARK_THEME, DEXTER_LIGHT_THEME, MONACO_FONT, registerDexterThemes } from '../lib/monacoTheme';
 import type { CollabSession } from '../lib/collab';
 
 interface Props {
@@ -74,11 +75,16 @@ export default function EditorPane({ value, mode, theme, onChange, onSelection, 
   };
 
   const common: Pick<EditorProps, 'theme' | 'onMount' | 'beforeMount' | 'options'> = {
-    theme: theme === 'dark' ? 'vs-dark' : 'vs',
+    theme: theme === 'dark' ? DEXTER_DARK_THEME : DEXTER_LIGHT_THEME,
     onMount: handleMount,
-    beforeMount: (monaco) => registerTypstLanguage(monaco),
+    beforeMount: (monaco) => {
+      registerTypstLanguage(monaco);
+      registerDexterThemes(monaco);
+    },
     options: {
       minimap: { enabled: false },
+      fontFamily: MONACO_FONT,
+      fontLigatures: true,
       fontSize: 13.5,
       lineNumbers: 'on',
       folding: true,
@@ -87,6 +93,9 @@ export default function EditorPane({ value, mode, theme, onChange, onSelection, 
       automaticLayout: true,
       tabSize: 2,
       renderWhitespace: 'none',
+      cursorBlinking: 'smooth',
+      cursorSmoothCaretAnimation: 'on',
+      padding: { top: 10 },
       find: { addExtraSpaceOnTop: false, autoFindInSelection: 'multiline' } as never,
     },
   };
