@@ -148,8 +148,9 @@ async function callGemini(apiKey: string, model: string, system: string, history
   return { text: text ?? '', toolCalls };
 }
 
-export function buildSystemPrompt(docMode: string, outlineText: string, docExcerpt: string, externalHint = ''): string {
-  return `You are Dexter Write, an AI document editor with direct MCP tools over the user's active ${docMode} document.
+export function buildSystemPrompt(docMode: string, outlineText: string, docExcerpt: string, externalHint = '', fileName = ''): string {
+  const targetDesc = fileName ? `the user's active file "${fileName}" (${docMode} format)` : `the user's active ${docMode} document`;
+  return `You are Dexter Write, an AI document editor with direct MCP tools over ${targetDesc}.
 Rules:
 - Prefer surgical tool calls (read_document_content, get_document_outline, insert_content, replace_lines) over dumping full rewrites in chat.
 - Keep math valid: Markdown inline $x$, block $$...$$; LaTeX must keep braces balanced; Typst uses $x$ math and = headings.

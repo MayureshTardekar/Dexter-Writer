@@ -766,6 +766,7 @@ export default function App() {
               docContent={docContent}
               setDocContent={setDocContent}
               docMode={docMode}
+              fileName={active?.name ?? ''}
               provider={provider}
               apiKey={apiKey}
               model={model}

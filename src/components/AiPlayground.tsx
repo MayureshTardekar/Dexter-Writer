@@ -39,6 +39,7 @@ interface Props {
   servers: ExternalMcpServer[];
   theme: 'dark' | 'light';
   onOpenReview?: () => void;
+  fileName?: string;
 }
 
 interface ChatMsg {
@@ -112,6 +113,7 @@ export default function AiPlayground({
   servers,
   theme,
   onOpenReview,
+  fileName,
 }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([
     { role: 'assistant', text: 'Hi! I can read, outline, insert and rewrite your document via MCP tools — plus any connected external MCP servers. Toggle Diff Review to approve edits per-chunk.' },
@@ -274,7 +276,7 @@ export default function AiPlayground({
         : '';
       const outline = getDocumentOutline(contentRef.current, docMode);
       const outlineText = outline.map((o) => `- ${o.title} (line ${o.line})`).join('\n');
-      const system = buildSystemPrompt(docMode, outlineText, contentRef.current, externalHint);
+      const system = buildSystemPrompt(docMode, outlineText, contentRef.current, externalHint, fileName);
       const history: ChatHistoryItem[] = messages.slice(-8).map((m) => ({ role: m.role, text: m.text.slice(0, 2000) }));
 
       const turn = await callLlm(provider, { apiKey, baseUrl, model }, system, history, userText, extra);
@@ -337,6 +339,11 @@ export default function AiPlayground({
           Diff Review
         </label>
         <span className="muted small">{diffMode ? 'AI stages edits' : 'Auto-Apply on'}</span>
+        {fileName && (
+          <span className="ai-file-pill" title={`Target active file: ${fileName} (${docMode})`}>
+            <Icon name="fileText" size={11} /> {fileName}
+          </span>
+        )}
         <div className="spacer" />
         {onOpenReview && (
           <button className="btn xs ghost" onClick={onOpenReview} title="Autonomous Document Review Agent">
