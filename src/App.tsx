@@ -72,6 +72,13 @@ export default function App() {
     }
   });
   const [showToc, setShowToc] = useState(true);
+  const [tocOpen, setTocOpen] = useState(() => {
+    try {
+      return localStorage.getItem('dexter-write:toc-open') !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [showFiles, setShowFiles] = useState(true);
   // Dynamic layout: any pane can be maximized; side panes can be hidden
   // (center editor always stays). Persisted across reloads.
@@ -211,7 +218,11 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => { saveProject(files, activeId); }, [files, activeId]);
+  const [lastSaved, setLastSaved] = useState<number | null>(null);
+  useEffect(() => {
+    saveProject(files, activeId);
+    setLastSaved(Date.now());
+  }, [files, activeId]);
 
   // Keep activeId valid (e.g. file deleted by a remote peer).
   useEffect(() => {
@@ -787,17 +798,23 @@ export default function App() {
                 </button>
               </span>
             </div>
-            {showFiles && (
-              <div className="filebar">
-                <div className="tabs">
-                  {files.map((f) => (
-                    <button key={f.id} className={`tab ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
-                      {f.name}
-                    </button>
-                  ))}
-                </div>
+            <div className="filebar">
+              <button
+                className="btn xs ghost icon-btn filebar-toggle"
+                onClick={() => setShowFiles((v) => !v)}
+                title={showFiles ? 'Collapse file explorer (tabs stay)' : 'Expand file explorer'}
+                aria-label={showFiles ? 'Collapse file explorer' : 'Expand file explorer'}
+              >
+                <Icon name={showFiles ? 'chevronsLeft' : 'chevronsRight'} size={13} />
+              </button>
+              <div className="tabs">
+                {files.map((f) => (
+                  <button key={f.id} className={`tab ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
+                    {f.name}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
             <div className="editor-row">
               {showFiles && (
                 <aside className="filetree" aria-label="File explorer">
@@ -865,14 +882,33 @@ export default function App() {
               </span>
             </div>
             {showToc && (
-              <nav className="toc" aria-label="Document outline">
-                {outline.length === 0 && <span className="muted small">No headings yet</span>}
-                {outline.map((o, i) => (
-                  <button key={i} className={`toc-item l${o.level}`} onClick={() => jumpToLine(o.line)} title={`Go to line ${o.line}`}>
-                    {o.title}
-                  </button>
-                ))}
-              </nav>
+              <div className="toc-wrap">
+                <button
+                  className="toc-head"
+                  onClick={() => {
+                    setTocOpen((v) => {
+                      try { localStorage.setItem('dexter-write:toc-open', v ? '0' : '1'); } catch { /* ignore */ }
+                      return !v;
+                    });
+                  }}
+                  aria-expanded={tocOpen}
+                  title={tocOpen ? 'Collapse outline' : 'Expand outline'}
+                >
+                  <Icon name="chevron" size={12} className={tocOpen ? '' : 'closed'} />
+                  <span>Outline</span>
+                  <span className="muted small">{outline.length}</span>
+                </button>
+                {tocOpen && (
+                  <nav className="toc" aria-label="Document outline">
+                    {outline.length === 0 && <span className="muted small">No headings yet</span>}
+                    {outline.map((o, i) => (
+                      <button key={i} className={`toc-item l${o.level}`} onClick={() => jumpToLine(o.line)} title={`Go to line ${o.line}`}>
+                        {o.title}
+                      </button>
+                    ))}
+                  </nav>
+                )}
+              </div>
             )}
             <PreviewPane content={docContent} mode={docMode} theme={theme} onSourceJump={handleSourceJump} />
           </section>
@@ -889,6 +925,9 @@ export default function App() {
         <span className="stat hide-mobile">{stats.chars} chars</span>
         <span className="stat hide-mobile">{stats.lines} lines</span>
         <span className="stat hide-mobile">~{stats.readingTimeMin} min</span>
+        <span className="stat hide-mobile" title="Autosaved to browser storage">
+          <Icon name="check" size={11} /> Saved{lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+        </span>
         <span className="spacer" />
         {live && (
           <span className="stat" title={peers.map((p) => p.name).join(', ')}>

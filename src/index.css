@@ -302,7 +302,18 @@ kbd {
 .voice-live .radar::after { animation: pulseRadar 1.4s ease-out infinite; background: transparent; border: 1.5px solid var(--danger); }
 
 /* ============ TOC / preview (academic paper styling) ============ */
-.toc { max-height: 168px; min-height: 0; overflow-y: auto; border-bottom: 1px solid var(--border); padding: 7px 9px; display: flex; flex-direction: column; gap: 1px; flex: 0 1 auto; }
+.toc-wrap { border-bottom: 1px solid var(--border); flex: 0 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.toc-head {
+  display: flex; align-items: center; gap: 6px;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: var(--display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  padding: 7px 12px 4px; width: 100%; text-align: left;
+}
+.toc-head:hover { color: var(--text); }
+.toc-head .icon { transition: transform 0.12s; }
+.toc-head .icon.closed { transform: rotate(-90deg); }
+.toc { max-height: 168px; min-height: 0; overflow-y: auto; padding: 3px 9px 7px; display: flex; flex-direction: column; gap: 1px; flex: 0 1 auto; }
 .toc-item { background: transparent; border: 0; color: var(--text); text-align: left; cursor: pointer; padding: 4px 7px; border-radius: 6px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .toc-item:hover { background: var(--panel2); }
 .toc-item.l2 { padding-left: 18px; color: var(--muted); }
@@ -408,8 +419,9 @@ kbd {
 .diff-grid pre.proposed { border: 1px solid var(--accent2); }
 
 /* ============ multi-file ============ */
-.filebar { border-bottom: 1px solid var(--border); background: var(--panel); flex: 0 0 auto; }
-.tabs { display: flex; gap: 2px; overflow-x: auto; padding: 6px 8px 0; scrollbar-width: none; }
+.filebar { border-bottom: 1px solid var(--border); background: var(--panel); flex: 0 0 auto; display: flex; align-items: stretch; }
+.filebar-toggle { margin: 6px 0 2px 6px; align-self: flex-end; flex: 0 0 auto; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; padding: 6px 8px 0; scrollbar-width: none; flex: 1; min-width: 0; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
   position: relative;
@@ -603,7 +615,7 @@ kbd {
 
 /* ============ print ============ */
 @media print {
-  .toolbar, .pane.left, .pane.center, .statusbar, .toc, .pane-head, .divider, .toasts, .rail { display: none !important; }
+  .toolbar, .pane.left, .pane.center, .statusbar, .toc, .toc-wrap, .pane-head, .divider, .toasts, .rail { display: none !important; }
   .panes { display: block; }
   .pane.right { display: flex !important; width: 100% !important; }
   .preview-scroll { overflow: visible; }
