@@ -17,6 +17,7 @@ import ModalHeader from './ModalHeader';
 import Icon from './icons';
 import type { DocMode } from '../lib/templates';
 import { saveSnapshot } from '../lib/history';
+import { toast } from '../lib/toast';
 
 export interface SelectionCtx {
   text: string;
@@ -70,22 +71,24 @@ function applyViaMonaco(editorRef: MutableRefObject<unknown>, current: string, c
     if (!model) return null;
     const Range = (monaco as { Range: new (...a: number[]) => unknown }).Range;
     const a = call.args;
+    const lineCount = Math.max(1, model.getLineCount());
     if (call.name === 'replace_lines') {
-      const s = Number(a.start_line ?? 1);
-      const e = Number(a.end_line ?? s);
+      const s = Math.max(1, Math.min(Number(a.start_line ?? 1), lineCount));
+      const e = Math.max(s, Math.min(Number(a.end_line ?? s), lineCount));
       const maxCol = model.getLineMaxColumn(e);
-      editor.executeEdits('virtual-mcp-ai', [{ range: new Range(s, 1, e, maxCol), text: String(a.new_text ?? ''), forceMoveMarkers: true }]);
+      const newText = String(a.new_text ?? a.replacement_text ?? a.text ?? '');
+      editor.executeEdits('virtual-mcp-ai', [{ range: new Range(s, 1, e, maxCol), text: newText, forceMoveMarkers: true }]);
       return model.getValue();
     }
     if (call.name === 'insert_content' || call.name === 'insert_text') {
-      const target = Number(a.target_line ?? 1);
+      const target = Math.max(1, Math.min(Number(a.target_line ?? 1), lineCount));
       const pos = (a.position as string) ?? 'after';
-      const text = String(a.text ?? '');
+      const text = String(a.text ?? a.content ?? '');
       if (pos === 'before') {
         editor.executeEdits('virtual-mcp-ai', [{ range: new Range(target, 1, target, 1), text: text + '\n', forceMoveMarkers: true }]);
       } else {
-        const maxCol = model.getLineMaxColumn(Math.min(target, model.getLineCount()));
-        editor.executeEdits('virtual-mcp-ai', [{ range: new Range(target, maxCol, target, maxCol), text: '\n' + text, forceMoveMarkers: true }]);
+        const maxCol = model.getLineMaxColumn(target);
+        editor.executeEdits('virtual-mcp-ai', [{ range: new Range(target, maxCol, target, maxCol), text: (current ? '\n' : '') + text, forceMoveMarkers: true }]);
       }
       return model.getValue();
     }
@@ -162,36 +165,36 @@ export default function AiPlayground({
     const cur = contentRef.current;
     saveSnapshot('active', 'active-file', cur, `Pre-AI: ${call.name}`).catch(() => {});
     if (call.name === 'insert_content' || call.name === 'insert_text') {
-      const via = applyViaMonaco(editorRef, cur, call);
+      const text = String(call.args.text ?? call.args.content ?? '');
+      const r = strInsert(cur, Number(call.args.target_line ?? 1), ((call.args.position as string) ?? 'after') as 'before' | 'after', text);
       if (diffMode) {
-        const r = strInsert(cur, Number(call.args.target_line ?? 1), ((call.args.position as string) ?? 'after') as 'before' | 'after', String(call.args.text ?? ''));
-        if (r.newContent !== undefined) setPending({ summary: toolBadge(call), before: cur, after: r.newContent });
-        badges.push(toolBadge(call) + ' (staged)');
-      } else if (via !== null) {
-        setDocContent(via);
-        badges.push(toolBadge(call));
-      } else {
-        const r = strInsert(cur, Number(call.args.target_line ?? 1), ((call.args.position as string) ?? 'after') as 'before' | 'after', String(call.args.text ?? ''));
-        if (r.newContent !== undefined) setDocContent(r.newContent);
-        badges.push(toolBadge(call));
-      }
-      return;
-    }
-    if (call.name === 'replace_lines') {
-      if (diffMode) {
-        const r = strReplace(cur, Number(call.args.start_line ?? 1), Number(call.args.end_line ?? 1), String(call.args.new_text ?? ''));
         if (r.newContent !== undefined) setPending({ summary: toolBadge(call), before: cur, after: r.newContent });
         badges.push(toolBadge(call) + ' (staged)');
       } else {
         const via = applyViaMonaco(editorRef, cur, call);
         if (via !== null) {
           setDocContent(via);
-          badges.push(toolBadge(call));
-        } else {
-          const r = strReplace(cur, Number(call.args.start_line ?? 1), Number(call.args.end_line ?? 1), String(call.args.new_text ?? ''));
-          if (r.newContent !== undefined) setDocContent(r.newContent);
-          badges.push(toolBadge(call));
+        } else if (r.newContent !== undefined) {
+          setDocContent(r.newContent);
         }
+        badges.push(toolBadge(call));
+      }
+      return;
+    }
+    if (call.name === 'replace_lines') {
+      const newText = String(call.args.new_text ?? call.args.replacement_text ?? call.args.text ?? '');
+      const r = strReplace(cur, Number(call.args.start_line ?? 1), Number(call.args.end_line ?? 1), newText);
+      if (diffMode) {
+        if (r.newContent !== undefined) setPending({ summary: toolBadge(call), before: cur, after: r.newContent });
+        badges.push(toolBadge(call) + ' (staged)');
+      } else {
+        const via = applyViaMonaco(editorRef, cur, call);
+        if (via !== null) {
+          setDocContent(via);
+        } else if (r.newContent !== undefined) {
+          setDocContent(r.newContent);
+        }
+        badges.push(toolBadge(call));
       }
     }
   }
@@ -358,15 +361,34 @@ export default function AiPlayground({
           <div key={i} className={`bubble ${m.role}`}>
             {m.badges?.map((b, j) => <div key={j} className="badge">{b}</div>)}
             <div className="bubble-text">{m.text}</div>
-            {m.role === 'assistant' && m.text.length > 40 && (
-              <button
-                className="btn xs ghost bubble-copy"
-                title="Copy message"
-                aria-label="Copy message"
-                onClick={() => copyMessage(i, m.text)}
-              >
-                <Icon name={copiedIdx === i ? 'check' : 'copy'} size={12} />
-              </button>
+            {m.role === 'assistant' && (
+              <div className="bubble-actions" style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                {m.text.length > 20 && (
+                  <button
+                    className="btn xs secondary bubble-apply"
+                    title="Apply this text directly to the active document"
+                    onClick={() => {
+                      let code = m.text;
+                      const match = /```(?:latex|tex|markdown|md|typst|typ)?\s*\n([\s\S]*?)```/i.exec(m.text);
+                      if (match && match[1].trim()) code = match[1].trim();
+                      setDocContent(code);
+                      toast('Applied to editor buffer!', 'success');
+                    }}
+                  >
+                    <Icon name="bolt" size={12} /> Apply to Editor
+                  </button>
+                )}
+                {m.text.length > 20 && (
+                  <button
+                    className="btn xs ghost bubble-copy"
+                    title="Copy message"
+                    aria-label="Copy message"
+                    onClick={() => copyMessage(i, m.text)}
+                  >
+                    <Icon name={copiedIdx === i ? 'check' : 'copy'} size={12} /> {copiedIdx === i ? 'Copied' : 'Copy'}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ))}

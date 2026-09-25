@@ -31,21 +31,27 @@ export function insertContent(
   position: 'before' | 'after',
   text: string,
 ): McpToolResult {
+  const insertText = String(text ?? '');
+  if (!content || content.length === 0) {
+    return { ok: true, message: `Inserted content into document`, newContent: insertText };
+  }
   const lines = content.split('\n');
   const idx = clamp(targetLine, 1, lines.length + 1);
   const at = position === 'after' ? idx : idx - 1;
-  const insertLines = String(text ?? '').split('\n');
+  const insertLines = insertText.split('\n');
   lines.splice(at, 0, ...insertLines);
   return { ok: true, message: `Inserted ${insertLines.length} line(s) at line ${idx} (${position})`, newContent: lines.join('\n') };
 }
 
 export function replaceLines(content: string, startLine: number, endLine: number, newText: string): McpToolResult {
-  if (!content || content.length === 0) return { ok: false, message: 'Empty document' };
+  const replacement = String(newText ?? '');
+  if (!content || content.length === 0) {
+    return { ok: true, message: `Wrote content to document`, newContent: replacement };
+  }
   const lines = content.split('\n');
-  if (lines.length === 0) return { ok: false, message: 'Empty document' };
   const s = clamp(startLine, 1, lines.length);
   const e = clamp(endLine, s, lines.length);
-  lines.splice(s - 1, e - s + 1, ...String(newText ?? '').split('\n'));
+  lines.splice(s - 1, e - s + 1, ...replacement.split('\n'));
   return { ok: true, message: `Replaced lines ${s}-${e}`, newContent: lines.join('\n') };
 }
 

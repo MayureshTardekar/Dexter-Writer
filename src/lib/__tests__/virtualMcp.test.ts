@@ -54,9 +54,10 @@ describe('Virtual MCP Document Server', () => {
       expect(res.newContent).not.toContain('- BYOK Vault');
     });
 
-    it('returns error if replacing in an empty document', () => {
+    it('successfully writes new text when replacing in an empty document', () => {
       const res = replaceLines('', 1, 1, 'Hello');
-      expect(res.ok).toBe(false);
+      expect(res.ok).toBe(true);
+      expect(res.newContent).toBe('Hello');
     });
   });
 
