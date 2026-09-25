@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBibTeX, formatBibTeX } from '../citations';
+import { parseBibTeX, formatBibTeX, parseArxivAtomXml } from '../citations';
 
 describe('Citations & BibTeX Engine', () => {
   const sampleBibTeX = `
@@ -63,5 +63,33 @@ describe('Citations & BibTeX Engine', () => {
     expect(bibStr).toContain('author = {Shannon, Claude E.}');
     expect(bibStr).toContain('year = {1948}');
     expect(bibStr).toContain('doi = {10.1002/j.1538-7305.1948.tb01338.x}');
+  });
+
+  it('parses arXiv Atom XML feed into clean BibTeX citation entries', () => {
+    const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1706.03762v7</id>
+    <published>2017-06-12T17:57:34Z</published>
+    <title> Attention Is All You Need </title>
+    <summary> The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. </summary>
+    <author>
+      <name>Ashish Vaswani</name>
+    </author>
+    <author>
+      <name>Noam Shazeer</name>
+    </author>
+  </entry>
+</feed>`;
+
+    const entries = parseArxivAtomXml(atomXml);
+    expect(entries.length).toBe(1);
+    const entry = entries[0];
+    expect(entry.title).toBe('Attention Is All You Need');
+    expect(entry.author).toBe('Ashish Vaswani and Noam Shazeer');
+    expect(entry.year).toBe('2017');
+    expect(entry.journal).toContain('arXiv preprint arXiv:1706.03762');
+    expect(entry.url).toBe('https://arxiv.org/abs/1706.03762');
+    expect(entry.rawBib).toContain('@article{vaswani2017attention,');
   });
 });

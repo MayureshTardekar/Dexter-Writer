@@ -153,3 +153,88 @@ export async function searchCrossref(query: string): Promise<CitationEntry[]> {
     return [];
   }
 }
+
+/**
+ * Parses Atom XML returned by the official arXiv public API into structured CitationEntry array.
+ */
+export function parseArxivAtomXml(xmlText: string): CitationEntry[] {
+  const entries: CitationEntry[] = [];
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+  let entryMatch: RegExpExecArray | null;
+
+  while ((entryMatch = entryRegex.exec(xmlText)) !== null) {
+    const block = entryMatch[1];
+
+    // Title
+    const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/.exec(block);
+    const title = titleMatch ? titleMatch[1].replace(/\s+/g, ' ').trim() : 'Untitled';
+
+    // Authors
+    const authorRegex = /<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/g;
+    const authors: string[] = [];
+    let authorMatch: RegExpExecArray | null;
+    while ((authorMatch = authorRegex.exec(block)) !== null) {
+      const a = authorMatch[1].trim();
+      if (a) authors.push(a);
+    }
+    const authorStr = authors.join(' and ') || 'Unknown Author';
+
+    // Published Year
+    const pubMatch = /<published>([\s\S]*?)<\/published>/.exec(block);
+    const published = pubMatch ? pubMatch[1].trim() : '';
+    const year = published ? published.slice(0, 4) : '';
+
+    // ArXiv ID & URL
+    const idMatch = /<id>([\s\S]*?)<\/id>/.exec(block);
+    const rawId = idMatch ? idMatch[1].trim() : '';
+    const arxivIdMatch = /arxiv\.org\/abs\/([0-9]+\.[0-9]+|[a-z-]+(?:\.[a-z]+)?\/[0-9]+)/i.exec(rawId);
+    const arxivId = arxivIdMatch ? arxivIdMatch[1] : rawId.replace(/^.*\//, '');
+    const url = arxivId ? `https://arxiv.org/abs/${arxivId}` : rawId;
+
+    // DOI
+    const doiMatch = /<arxiv:doi[^>]*>([\s\S]*?)<\/arxiv:doi>/.exec(block);
+    const doi = doiMatch ? doiMatch[1].trim() : '';
+
+    // Citation Key (use surname / last word of author full name)
+    const lastName = authors[0] ? authors[0].trim().split(/\s+/).pop() || 'author' : 'author';
+    const firstAuthor = lastName.toLowerCase().replace(/[^a-z]/g, '') || 'author';
+    const cleanTitle = title.slice(0, 10).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const key = `${firstAuthor}${year}${cleanTitle}`;
+
+    const journal = `arXiv preprint arXiv:${arxivId}`;
+
+    const entry: CitationEntry = {
+      id: `arxiv_${arxivId || key}`,
+      type: 'article',
+      key,
+      title,
+      author: authorStr,
+      year,
+      journal,
+      doi,
+      url,
+      rawBib: '',
+    };
+    entry.rawBib = formatBibTeX(entry);
+    entries.push(entry);
+  }
+
+  return entries;
+}
+
+/**
+ * Searches arXiv for research papers and preprints (Free, public API, no key required).
+ */
+export async function searchArxiv(query: string): Promise<CitationEntry[]> {
+  const q = encodeURIComponent(query.trim());
+  if (!q) return [];
+
+  try {
+    const res = await fetch(`https://export.arxiv.org/api/query?search_query=all:${q}&start=0&max_results=8&sortBy=relevance`);
+    if (!res.ok) return [];
+    const xml = await res.text();
+    return parseArxivAtomXml(xml);
+  } catch {
+    return [];
+  }
+}

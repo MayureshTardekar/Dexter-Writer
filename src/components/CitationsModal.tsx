@@ -3,6 +3,7 @@ import {
   formatBibTeX,
   parseBibTeX,
   searchCrossref,
+  searchArxiv,
   type CitationEntry,
 } from '../lib/citations';
 import { downloadFile } from '../lib/exportDoc';
@@ -26,18 +27,21 @@ export default function CitationsModal({
   docMode,
   onClose,
 }: Props) {
-  const [tab, setTab] = useState<'my' | 'search' | 'paste'>('my');
+  const [tab, setTab] = useState<'my' | 'search' | 'paste'>('search');
+  const [searchSource, setSearchSource] = useState<'arxiv' | 'crossref'>('arxiv');
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CitationEntry[]>([]);
   const [searching, setSearching] = useState(false);
   const [rawPaste, setRawPaste] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
 
-  async function handleSearch() {
-    if (!query.trim() || searching) return;
+  async function handleSearch(overrideQuery?: string) {
+    const q = (overrideQuery ?? query).trim();
+    if (!q || searching) return;
+    if (overrideQuery) setQuery(overrideQuery);
     setSearching(true);
     try {
-      const results = await searchCrossref(query);
+      const results = searchSource === 'arxiv' ? await searchArxiv(q) : await searchCrossref(q);
       setSearchResults(results);
     } catch {
       setSearchResults([]);
@@ -174,28 +178,64 @@ export default function CitationsModal({
           </div>
         )}
 
-        {/* Tab 2: Search Crossref */}
+        {/* Tab 2: Search Papers (arXiv & Crossref) */}
         {tab === 'search' && (
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="muted small">Source:</span>
+              <div className="seg">
+                <button
+                  className={searchSource === 'arxiv' ? 'active' : ''}
+                  onClick={() => setSearchSource('arxiv')}
+                  title="Search arXiv preprints & AI/CS papers"
+                >
+                  arXiv
+                </button>
+                <button
+                  className={searchSource === 'crossref' ? 'active' : ''}
+                  onClick={() => setSearchSource('crossref')}
+                  title="Search Crossref journals & DOIs"
+                >
+                  Crossref
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', flex: 1, minWidth: '200px' }}>
+                {['Attention is all you need', 'DeepSeek', 'LoRA', 'Diffusion'].map((sq) => (
+                  <button
+                    key={sq}
+                    className="btn xs ghost"
+                    style={{ fontSize: '11px', whiteSpace: 'nowrap', padding: '2px 7px' }}
+                    onClick={() => handleSearch(sq)}
+                  >
+                    {sq}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Search paper title, author, or DOI (e.g. Attention is all you need)..."
+                placeholder={searchSource === 'arxiv' ? "Search arXiv paper (e.g. Attention is all you need, DeepSeek)..." : "Search title, author, or DOI..."}
                 style={{ flex: 1 }}
                 aria-label="Search papers"
               />
-              <button className="btn primary" onClick={handleSearch} disabled={searching}>
+              <button className="btn primary" onClick={() => handleSearch()} disabled={searching}>
                 {searching ? 'Searching…' : 'Search'}
               </button>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-              {searching && <p className="muted small">Searching academic literature via Crossref…</p>}
+              {searching && (
+                <p className="muted small">
+                  Searching {searchSource === 'arxiv' ? 'arXiv preprints API' : 'Crossref API'} for &ldquo;{query}&rdquo;…
+                </p>
+              )}
               {!searching && searchResults.length === 0 && (
                 <p className="muted small" style={{ textAlign: 'center', padding: '20px 0' }}>
-                  Search millions of real papers, journals, and conference publications.
+                  Search millions of real papers, preprints, and journals with 1-click citation import.
                 </p>
               )}
               {searchResults.map((item) => {
@@ -207,7 +247,7 @@ export default function CitationsModal({
                       background: 'var(--panel2)',
                       border: '1px solid var(--border)',
                       borderRadius: '8px',
-                      padding: '8px 12px',
+                      padding: '9px 12px',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
@@ -215,21 +255,49 @@ export default function CitationsModal({
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 600 }}>{item.title}</div>
-                      <div className="muted small">{item.author} ({item.year})</div>
-                      {item.doi && <div className="muted small" style={{ fontSize: '11px' }}>DOI: {item.doi}</div>}
+                      <div style={{ fontSize: '13px', fontWeight: 600 }}>
+                        {item.url ? (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: 'inherit', textDecoration: 'none' }}
+                            title="Open paper in new tab"
+                          >
+                            {item.title} <Icon name="link" size={11} />
+                          </a>
+                        ) : (
+                          item.title
+                        )}
+                      </div>
+                      <div className="muted small">{item.author} ({item.year || 'n.d.'})</div>
+                      <div className="muted small" style={{ fontSize: '11px' }}>
+                        {item.journal || (item.doi ? `DOI: ${item.doi}` : '')}
+                      </div>
                     </div>
-                    <div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                       {alreadyAdded ? (
                         <span className="small muted">✓ In Project</span>
                       ) : (
                         <button
                           className="btn xs primary"
                           onClick={() => onAddCitation(item)}
+                          title="Save reference into project"
                         >
-                          + Add to Project
+                          + Add
                         </button>
                       )}
+                      <button
+                        className="btn xs ghost"
+                        onClick={() => {
+                          if (!alreadyAdded) onAddCitation(item);
+                          onInsertCiteKey(item.key);
+                          onClose();
+                        }}
+                        title="Add and insert citation key into editor buffer"
+                      >
+                        Insert
+                      </button>
                     </div>
                   </div>
                 );

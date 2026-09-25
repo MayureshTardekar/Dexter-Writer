@@ -213,51 +213,73 @@ Structure-aware chunking helps. Future work: citation grounding.
     label: 'API Docs (Markdown)',
     mode: 'markdown',
     description: 'Technical product & API specification',
-    content: `# Project Nebula — API Documentation
+    content: `# 🪐 Project Nebula — Distributed Semantic Search Engine
 
-> Version 1.4.0 · Base URL \`https://api.nebula.dev/v1\` · Auth: Bearer token
+> **Version 1.4.0** · Status: \`Production Ready\` · Auth: \`Bearer Token\` · Base URL: \`https://api.nebula.dev/v1\`
 
-## Overview
+## 🏗️ System Architecture
 
-Nebula is a document-indexing API. Architecture:
+Dexter Write renders full **Mermaid.js** diagrams live in Markdown:
 
-\`\`\`text
-Client -> Gateway -> Indexer -> Vector Store
-              \\-> Cache (Redis)
+\`\`\`mermaid
+graph LR
+  Client[Client Application] --> Gateway[API Gateway / Auth]
+  Gateway --> Cache[(Redis L1 Cache)]
+  Gateway --> Engine[Semantic Retrieval Engine]
+  Engine --> Embeddings[Transformer Embeddings]
+  Engine --> VectorDB[(Qdrant Vector DB)]
+  style Gateway fill:#6366f1,stroke:#8b5cf6,stroke-width:2px,color:#fff
+  style Engine fill:#34d3a6,stroke:#059669,stroke-width:2px,color:#000
+  style VectorDB fill:#ec4899,stroke:#db2777,stroke-width:2px,color:#fff
 \`\`\`
 
-Math for ranking: relevance $s = \\cos(q, d) \\cdot e^{-\\lambda t}$ and
+---
 
-$$\\text{MRR} = \\frac{1}{|Q|}\\sum_i \\frac{1}{rank_i}$$
+## 📐 Mathematical Formulation
 
-## Quickstart
+Relevance ranking scores are computed via cosine similarity and temperature-scaled **InfoNCE** loss [@vaswani2017attention]:
 
-\`\`\`bash
-curl -H "Authorization: Bearer $NEBULA_KEY" \\
-  https://api.nebula.dev/v1/documents
+$$\\mathcal{L}_{\\text{InfoNCE}} = -\\sum_{i=1}^B \\log \\frac{\\exp(\\text{sim}(q_i, d_i^+) / \\tau)}{\\sum_{j=1}^B \\exp(\\text{sim}(q_i, d_j) / \\tau)}$$
+
+Mean Reciprocal Rank (MRR) across evaluation query set $Q$:
+
+$$\\text{MRR} = \\frac{1}{|Q|} \\sum_{i=1}^{|Q|} \\frac{1}{\\text{rank}_i}$$
+
+---
+
+## ⚡ Performance Benchmarks
+
+| Indexing Strategy | Recall@5 | Latency (p99) | Throughput (QPS) | Memory (GB) |
+| :---------------- | :------: | :-----------: | :--------------: | :---------: |
+| Dense Cosine      | 84.2%    | 18ms          | 4,200            | 3.2 GB      |
+| HNSW + Quantized  | 92.6%    | 12ms          | 8,900            | 1.8 GB      |
+| **Nebula Hybrid** | **96.8%**| **8ms**       | **12,400**       | **1.4 GB**  |
+
+---
+
+## 💻 Quickstart (Python SDK)
+
+\`\`\`python
+from nebula import Client
+
+# Initialize client with local or cloud endpoint
+client = Client(api_key="nebula_live_token")
+
+# Query semantic vector index
+results = client.search(
+    query="real-time collaborative Overleaf alternative",
+    top_k=5,
+    threshold=0.85
+)
+
+for doc in results:
+    print(f"[{doc.score:.2f}] {doc.title}")
 \`\`\`
 
-| Method | Endpoint | Description |
-| ------ | -------- | ----------- |
-| GET | \`/documents\` | List documents |
-| POST | \`/documents\` | Ingest document |
-| GET | \`/search?q=\` | Semantic search |
-| DELETE | \`/documents/:id\` | Remove document |
-
-- [x] GFM task lists supported
-- [ ] Rate limits per key
-
-## Error Codes
-
-| Code | Meaning |
-| ---- | ------- |
-| 400 | Bad request — check \`q\` param |
-| 401 | Missing/invalid token |
-| 429 | Rate limited — retry after \`Retry-After\` |
-
-## Security
-
-Never commit keys. Use \`http://localhost:11434\` for local Ollama inference during development.
+- [x] WebAssembly Typst vector typesetting
+- [x] Autonomous Document Review Agent
+- [x] In-browser arXiv and Crossref citation discovery
+- [ ] Multi-region active replication
 `,
   },
 ];
