@@ -549,6 +549,18 @@ export default function App() {
 
   const paletteActions = useMemo<PaletteAction[]>(() => {
     const acts: PaletteAction[] = [];
+    if (selection && selection.text) {
+      acts.push({
+        id: 'ai-selection-focus',
+        group: 'AI',
+        label: `Edit selection (lines ${selection.startLine}-${selection.endLine}) with AI`,
+        icon: 'sparkles',
+        run: () => {
+          setHidden((h) => ({ ...h, left: false }));
+          setMobileView('chat');
+        },
+      });
+    }
     for (const f of files) {
       acts.push({ id: `file-${f.id}`, group: 'Files', label: `Open ${f.name}`, icon: 'fileText', run: () => setActiveId(f.id) });
     }
@@ -617,7 +629,7 @@ export default function App() {
     }
     return acts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, docMode, docContent, theme, showToc, showFiles, live, maximized, hidden, applyTemplateToActive, switchMode]);
+  }, [files, docMode, docContent, theme, showToc, showFiles, live, maximized, hidden, selection, applyTemplateToActive, switchMode]);
 
   return (
     <div className="app">

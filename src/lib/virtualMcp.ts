@@ -55,8 +55,46 @@ export function replaceLines(content: string, startLine: number, endLine: number
   return { ok: true, message: `Replaced lines ${s}-${e}`, newContent: lines.join('\n') };
 }
 
-export function executeVirtualTool(content: string, mode: DocMode, call: McpToolCall): McpToolResult & { resultText?: string } {
+/**
+ * Validate an edit call BEFORE applying it. Returns an error message, or
+ * null when the call is safe. The execute/insert/replace helpers clamp
+ * out-of-range args silently — this lets the agent loop see the mistake
+ * and retry with a correct range instead of corrupting the wrong lines.
+ */
+export function validateDocEdit(content: string, call: McpToolCall): string | null {
   const a = call.args ?? {};
+  const lineCount = content ? content.split('\n').length : 0;
+  const num = (v: unknown): number | null => {
+    const n = Number(v);
+    return Number.isInteger(n) ? n : null;
+  };
+  if (call.name === 'replace_lines') {
+    const s = num(a.start_line);
+    const e = num(a.end_line);
+    if (s === null || e === null) return 'replace_lines needs integer start_line and end_line.';
+    if (lineCount === 0) return null; // empty document: whole write, always fine
+    if (s < 1 || e < 1) return `Invalid range ${s}-${e}: line numbers start at 1 (document has ${lineCount} lines).`;
+    if (s > e) return `Invalid range: start_line (${s}) is after end_line (${e}).`;
+    if (s > lineCount) {
+      return `start_line ${s} is past the end of the document (${lineCount} lines). Call get_document_outline first, then retry with a valid range.`;
+    }
+    return null; // end_line past EOF is tolerated (clamped)
+  }
+  if (call.name === 'insert_content' || call.name === 'insert_text') {
+    const t = num(a.target_line);
+    if (t === null) return 'insert_content needs an integer target_line.';
+    if (lineCount === 0) return null;
+    if (t < 1 || t > lineCount + 1) {
+      return `target_line ${t} is out of bounds (document has ${lineCount} lines; valid range is 1-${lineCount + 1}).`;
+    }
+    const text = String(a.text ?? a.content ?? '');
+    if (!text.trim()) return 'insert_content with empty text does nothing — provide the text to insert.';
+    return null;
+  }
+  return null;
+}
+
+export function executeVirtualTool(content: string, mode: DocMode, call: McpToolCall): McpToolResult & { resultText?: string } {  const a = call.args ?? {};
   switch (call.name) {
     case 'read_document_content':
     case 'get_document_content': {

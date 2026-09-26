@@ -52,7 +52,7 @@ export function stripToPlainText(content: string, mode: DocMode): string {
   if (mode === 'latex') {
     t = t
       .replace(/%.*$/gm, '')
-      .replace(/\\(begin|end)\{[^}]*\}/g, '')
+      .replace(/\\(begin|end)\{[^}]*\}(?:\[[^\]]*\])?/g, '')
       .replace(/\\(section|subsection|subsubsection|chapter|title|author|date|maketitle)[*]?(\[[^\]]*\])?(\{[^}]*\})?/g, '\n$3\n')
       .replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{([^}]*)\})?/g, '$3')
       .replace(/[{}]/g, '');

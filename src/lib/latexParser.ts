@@ -49,6 +49,54 @@ export function extractBalancedBraces(text: string, startIndex: number): { conte
 }
 
 /**
+ * Removes a LaTeX command TOGETHER WITH its brace arguments (balanced, so
+ * nested groups like {\large\bfseries\uppercase} are consumed whole).
+ * Without this, fragments like "0em", "colorlinks=true" or "empty" leak
+ * into the readable preview. Unbalanced/malformed uses are left untouched.
+ */
+export function stripLatexCommand(
+  src: string,
+  name: string,
+  argCount: number,
+  leadingOpt = false,
+  trailingOpt = false,
+): string {
+  const re = new RegExp(`\\\\${name}\\*?`, 'g');
+  let out = '';
+  let idx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    let pos = m.index + m[0].length;
+    if (leadingOpt) {
+      const opt = /^\s*\[[^\]]*\]/.exec(src.slice(pos));
+      if (opt) pos += opt[0].length;
+    }
+    let ok = true;
+    for (let a = 0; a < argCount; a++) {
+      const b = extractBalancedBraces(src, pos);
+      if (!b) {
+        ok = false;
+        break;
+      }
+      pos = b.endIndex;
+    }
+    if (ok && trailingOpt) {
+      const t = /^\s*\[[^\]]*\]/.exec(src.slice(pos));
+      if (t) pos += t[0].length;
+    }
+    if (ok) {
+      out += src.slice(idx, m.index);
+      idx = pos;
+    } else {
+      out += src.slice(idx, m.index + m[0].length);
+      idx = m.index + m[0].length;
+      re.lastIndex = idx;
+    }
+  }
+  return out + src.slice(idx);
+}
+
+/**
  * Parses user-defined \newcommand and \def macros from LaTeX preamble and body.
  */
 export function extractLatexMacros(tex: string): { macros: Map<string, LatexMacro>; strippedDoc: string } {
@@ -301,6 +349,18 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\subsubsection\*?\{([^}]*)\}/g, '#### $1\n')
     .replace(/\\paragraph\*?\{([^}]*)\}/g, '**$1** — ');
 
+  // 8b. Preamble layout & styling commands carry no readable text — remove
+  // them WITH their arguments, otherwise fragments like "0em[] 0pt12pt4pt",
+  // "colorlinks=true" or "empty" leak into the preview.
+  s = stripLatexCommand(s, 'titlespacing', 4, false, true);
+  s = stripLatexCommand(s, 'titleformat', 5, true, true);
+  s = stripLatexCommand(s, 'hypersetup', 1);
+  s = s
+    .replace(/\\pagestyle\{[^}]*\}/g, '')
+    .replace(/\\thispagestyle\{[^}]*\}/g, '')
+    .replace(/\\pagenumbering\{[^}]*\}/g, '')
+    .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (_m, inner) => `\n\n${String(inner).trim()}\n\n`);
+
   // 9. Academic Environments (abstract, quote, theorem, proof)
   s = s.replace(/\\begin\{abstract\}([\s\S]*?)\\end\{abstract\}/g, (_m, abs) => {
     const lines = abs.trim().split('\n').map((l: string) => `> ${l.trim()}`).join('\n');
@@ -317,13 +377,18 @@ export function parseLatexLevel3(tex: string): string {
     return `\n\n*Proof.* ${prf.trim()} ∎\n\n`;
   });
 
-  // 10. Lists: itemize and enumerate
+  // 10. Lists: itemize and enumerate (consume enumitem-style [options] too,
+  // otherwise they leak into the readable preview as raw "[nosep, ...]" text)
   s = s
-    .replace(/\\begin\{itemize\}/g, '')
+    .replace(/\\begin\{itemize\}(?:\[[^\]]*\])?/g, '')
     .replace(/\\end\{itemize\}/g, '')
-    .replace(/\\begin\{enumerate\}/g, '')
+    .replace(/\\begin\{enumerate\}(?:\[[^\]]*\])?/g, '')
     .replace(/\\end\{enumerate\}/g, '')
     .replace(/\\item\s*/g, '- ');
+
+  // 10b. Spacing commands carry no readable text — drop them WITH their
+  // arguments, otherwise lengths like "{4pt}" leak into the preview as "4pt".
+  s = s.replace(/\\(?:vspace|hspace|smallskip|medskip|bigskip|noindent|indent)\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?/g, '');
 
   // 11. Typography, styles, links, and citations with balanced brace handling
   s = s

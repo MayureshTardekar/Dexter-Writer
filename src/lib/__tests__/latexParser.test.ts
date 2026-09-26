@@ -5,6 +5,7 @@ import {
   expandUserMacros,
   parseLatexTabular,
   parseLatexLevel3,
+  stripLatexCommand,
 } from '../latexParser';
 
 describe('Level 3 LaTeX Parser — Balanced Braces & Macro Engine', () => {
@@ -117,6 +118,65 @@ f(x) = \\sum_{i=1}^d w_i x_i + b
       // TikZ vector graphic card
       expect(result).toContain('📐 **TikZ Vector Graphic**');
       expect(result).toContain('\\begin{tikzpicture}');
+    });
+
+    it('strips enumitem list options so they do not leak into the preview', () => {
+      const tex = `
+\\begin{itemize}[nosep,leftmargin=*]
+\\item Built a RAG pipeline
+\\item Shipped v2
+\\end{itemize}
+\\begin{enumerate}[label=\\arabic*.]
+\\item First
+\\end{enumerate}
+`;
+      const result = parseLatexLevel3(tex);
+      expect(result).not.toContain('nosep');
+      expect(result).not.toContain('leftmargin');
+      expect(result).toContain('- Built a RAG pipeline');
+      expect(result).toContain('- First');
+    });
+
+    it('drops spacing commands with their arguments instead of leaking lengths', () => {
+      const tex = 'Hello\\vspace{4pt}\nWorld\\hspace{1em}!\n\\noindentIndented';
+      const result = parseLatexLevel3(tex);
+      expect(result).not.toContain('4pt');
+      expect(result).not.toContain('1em');
+      expect(result).toContain('Hello');
+      expect(result).toContain('World');
+      expect(result).toContain('Indented');
+    });
+
+    it('strips titlesec/titlespacing/hypersetup/pagestyle without leaking fragments', () => {
+      const tex = `
+\\titleformat{\\section}{\\large\\bfseries\\uppercase}{}{0em}{}[\\titlerule]
+\\titlespacing{\\section}{0pt}{12pt}{4pt}
+\\hypersetup{colorlinks=true,urlcolor=blue}
+\\pagestyle{empty}
+\\begin{center}
+{\\Huge \\textbf{Mayuresh Tardekar}} \\\\[4pt]
+Mumbai, India
+\\end{center}
+\\section{Education}
+Body text.
+`;
+      const result = parseLatexLevel3(tex);
+      expect(result).not.toContain('0em');
+      expect(result).not.toContain('12pt');
+      expect(result).not.toContain('colorlinks');
+      expect(result).not.toContain('empty');
+      expect(result).not.toContain('titlerule');
+      expect(result).toContain('Mayuresh Tardekar');
+      expect(result).toContain('Mumbai, India');
+      expect(result).toContain('## Education');
+      expect(result).toContain('Body text.');
+    });
+
+    it('stripLatexCommand consumes nested-brace args whole and spares malformed uses', () => {
+      expect(stripLatexCommand('a\\titlespacing{\\section}{0pt}{12pt}{4pt}b', 'titlespacing', 4)).toBe('ab');
+      expect(stripLatexCommand('a\\titleformat{\\s}{\\large\\bfseries\\uppercase}{}{0em}{}[\\titlerule]b', 'titleformat', 5, true, true)).toBe('ab');
+      // unbalanced → left untouched
+      expect(stripLatexCommand('a\\hypersetup{colorlinks=true', 'hypersetup', 1)).toContain('\\hypersetup');
     });
   });
 });

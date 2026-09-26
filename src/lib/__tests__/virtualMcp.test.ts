@@ -4,6 +4,7 @@ import {
   insertContent,
   replaceLines,
   executeVirtualTool,
+  validateDocEdit,
 } from '../virtualMcp';
 
 describe('Virtual MCP Document Server', () => {
@@ -104,6 +105,31 @@ describe('Virtual MCP Document Server', () => {
       expect(toolRes.resultText).toContain('Dexter Write Architecture');
       expect(toolRes.resultText).toContain('Introduction');
       expect(toolRes.resultText).toContain('Features');
+    });
+  });
+
+  describe('validateDocEdit (pre-apply guard)', () => {
+    const doc = 'one\ntwo\nthree\nfour\nfive';
+    it('accepts sane ranges', () => {
+      expect(validateDocEdit(doc, { name: 'replace_lines', args: { start_line: 2, end_line: 3, new_text: 'x' } })).toBeNull();
+      expect(validateDocEdit(doc, { name: 'insert_content', args: { target_line: 6, position: 'after', text: 'x' } })).toBeNull();
+    });
+    it('rejects inverted, zero-based, and past-EOF ranges', () => {
+      expect(validateDocEdit(doc, { name: 'replace_lines', args: { start_line: 4, end_line: 2, new_text: 'x' } })).toMatch(/after end_line/i);
+      expect(validateDocEdit(doc, { name: 'replace_lines', args: { start_line: 0, end_line: 2, new_text: 'x' } })).toMatch(/start at 1/i);
+      expect(validateDocEdit(doc, { name: 'replace_lines', args: { start_line: 99, end_line: 100, new_text: 'x' } })).toMatch(/past the end/i);
+    });
+    it('rejects bad insert targets and empty text', () => {
+      expect(validateDocEdit(doc, { name: 'insert_content', args: { target_line: 99, position: 'after', text: 'x' } })).toMatch(/out of bounds/i);
+      expect(validateDocEdit(doc, { name: 'insert_content', args: { target_line: 2, position: 'after', text: '   ' } })).toMatch(/empty text/i);
+      expect(validateDocEdit(doc, { name: 'insert_content', args: { position: 'after', text: 'x' } })).toMatch(/integer target_line/i);
+    });
+    it('allows whole writes into empty documents', () => {
+      expect(validateDocEdit('', { name: 'replace_lines', args: { start_line: 1, end_line: 1, new_text: 'x' } })).toBeNull();
+      expect(validateDocEdit('', { name: 'insert_content', args: { target_line: 1, position: 'after', text: 'x' } })).toBeNull();
+    });
+    it('ignores non-edit tools', () => {
+      expect(validateDocEdit(doc, { name: 'read_document_content', args: {} })).toBeNull();
     });
   });
 });

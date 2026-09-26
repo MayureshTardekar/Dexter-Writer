@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { buildSystemPrompt, callLlm, type ChatHistoryItem, type ExtraToolDef, type ProviderId } from '../lib/aiGateway';
+import { buildSystemPrompt, callLlm, detectDocMacros, type ChatHistoryItem, type ExtraToolDef, type ProviderId } from '../lib/aiGateway';
 import { getDocumentOutline } from '../lib/docUtils';
-import { executeVirtualTool, toolBadge, type McpToolCall } from '../lib/virtualMcp';
+import { executeVirtualTool, toolBadge, validateDocEdit, type McpToolCall } from '../lib/virtualMcp';
 import { insertContent as strInsert, replaceLines as strReplace } from '../lib/virtualMcp';
 import {
   callExternalTool,
@@ -16,8 +16,16 @@ import DiffReviewModal from './DiffReviewModal';
 import ModalHeader from './ModalHeader';
 import Icon from './icons';
 import type { DocMode } from '../lib/templates';
-import { saveSnapshot } from '../lib/history';
+import { saveSnapshot, formatTimeAgo } from '../lib/history';
 import { toast } from '../lib/toast';
+import {
+  deleteConversation,
+  loadConversations,
+  newConversationId,
+  saveConversation,
+  titleFor,
+  type ChatConversation,
+} from '../lib/chatHistory';
 
 export interface SelectionCtx {
   text: string;
@@ -59,6 +67,13 @@ const VIRTUAL_NAMES = new Set([
   'read_document_content', 'get_document_content', 'get_document_outline',
   'insert_content', 'insert_text', 'replace_lines', 'propose_diff',
 ]);
+
+/** Extract the first fenced code block, if the message carries document code. */
+function codeBlockOf(text: string): string | null {
+  const match = /```(?:latex|tex|markdown|md|typst|typ)?\s*\n([\s\S]*?)```/i.exec(text);
+  const code = match?.[1]?.trim();
+  return code ? code : null;
+}
 
 function applyViaMonaco(editorRef: MutableRefObject<unknown>, current: string, call: McpToolCall): string | null {
   try {
@@ -115,9 +130,15 @@ export default function AiPlayground({
   onOpenReview,
   fileName,
 }: Props) {
-  const [messages, setMessages] = useState<ChatMsg[]>([
-    { role: 'assistant', text: 'Hi! I can read, outline, insert and rewrite your document via MCP tools — plus any connected external MCP servers. Toggle Diff Review to approve edits per-chunk.' },
-  ]);
+  const GREETING: ChatMsg = {
+    role: 'assistant',
+    text: 'Hi! I can read, outline, insert and rewrite your document via MCP tools — plus any connected external MCP servers. Toggle Diff Review to approve edits per-chunk.',
+  };
+  const [initialConvos] = useState<ChatConversation[]>(() => loadConversations());
+  const [convId, setConvId] = useState<string>(() => initialConvos[0]?.id ?? newConversationId());
+  const [messages, setMessages] = useState<ChatMsg[]>(() => initialConvos[0]?.messages ?? [GREETING]);
+  const [recents, setRecents] = useState<ChatConversation[]>(() => initialConvos);
+  const [showRecents, setShowRecents] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [diffMode, setDiffMode] = useState(true);
@@ -125,12 +146,25 @@ export default function AiPlayground({
   const [listening, setListening] = useState(false);
   const [permReq, setPermReq] = useState<PermRequest | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  // Giant model dumps (whole documents pasted in chat) render collapsed.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  function toggleExpand(i: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
   const permResolver = useRef<((v: 'once' | 'always' | 'deny') => void) | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef(docContent);
   contentRef.current = docContent;
   const serversRef = useRef(servers);
   serversRef.current = servers;
+  // Cumulative staged content across multiple tool calls in one turn, so the
+  // review modal shows ALL staged edits instead of only the last one.
+  const stagedRef = useRef<string | null>(null);
 
   // Keep the latest message in view (but don't yank while the user scrolls up).
   useEffect(() => {
@@ -139,6 +173,39 @@ export default function AiPlayground({
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
     if (nearBottom || sending) el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
+
+  // Autosave the conversation (debounced) so recents survive reloads.
+  useEffect(() => {
+    if (!messages.some((m) => m.role === 'user')) return;
+    const t = window.setTimeout(() => {
+      saveConversation({ id: convId, title: titleFor(messages), fileName, createdAt: Date.now(), updatedAt: Date.now(), messages });
+      setRecents(loadConversations());
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [messages, convId, fileName]);
+
+  function openConvo(id: string) {
+    const c = recents.find((r) => r.id === id);
+    if (!c) return;
+    setConvId(c.id);
+    setMessages(c.messages.map((m) => ({ ...m })));
+    setShowRecents(false);
+  }
+
+  function newChat() {
+    setConvId(newConversationId());
+    setMessages([{ ...GREETING }]);
+    setShowRecents(false);
+  }
+
+  function removeConvo(id: string) {
+    const rest = deleteConversation(id);
+    setRecents(rest);
+    if (id === convId) {
+      setConvId(newConversationId());
+      setMessages([{ ...GREETING }]);
+    }
+  }
 
   function copyMessage(i: number, text: string) {
     navigator.clipboard?.writeText(text).then(
@@ -166,36 +233,43 @@ export default function AiPlayground({
   function stageOrApply(call: McpToolCall, badges: string[]): void {
     const cur = contentRef.current;
     saveSnapshot('active', 'active-file', cur, `Pre-AI: ${call.name}`).catch(() => {});
+    // In review mode every tool call builds on the previously staged result,
+    // so one Accept applies the whole turn — not just the last call.
+    const base = stagedRef.current ?? cur;
+    const stage = (badge: string, after: string | undefined): void => {
+      if (after === undefined) return;
+      stagedRef.current = after;
+      setPending((prev) => ({
+        summary: prev && prev.before === cur ? `${prev.summary} · ${badge}` : badge,
+        before: cur,
+        after,
+      }));
+      badges.push(`${badge} (staged)`);
+    };
     if (call.name === 'insert_content' || call.name === 'insert_text') {
       const text = String(call.args.text ?? call.args.content ?? '');
-      const r = strInsert(cur, Number(call.args.target_line ?? 1), ((call.args.position as string) ?? 'after') as 'before' | 'after', text);
+      const r = strInsert(base, Number(call.args.target_line ?? 1), ((call.args.position as string) ?? 'after') as 'before' | 'after', text);
       if (diffMode) {
-        if (r.newContent !== undefined) setPending({ summary: toolBadge(call), before: cur, after: r.newContent });
-        badges.push(toolBadge(call) + ' (staged)');
+        stage(toolBadge(call), r.newContent);
       } else {
         const via = applyViaMonaco(editorRef, cur, call);
-        if (via !== null) {
-          setDocContent(via);
-        } else if (r.newContent !== undefined) {
-          setDocContent(r.newContent);
-        }
+        const nextVal = via !== null ? via : (r.newContent !== undefined ? r.newContent : cur);
+        contentRef.current = nextVal;
+        setDocContent(nextVal);
         badges.push(toolBadge(call));
       }
       return;
     }
     if (call.name === 'replace_lines') {
       const newText = String(call.args.new_text ?? call.args.replacement_text ?? call.args.text ?? '');
-      const r = strReplace(cur, Number(call.args.start_line ?? 1), Number(call.args.end_line ?? 1), newText);
+      const r = strReplace(base, Number(call.args.start_line ?? 1), Number(call.args.end_line ?? 1), newText);
       if (diffMode) {
-        if (r.newContent !== undefined) setPending({ summary: toolBadge(call), before: cur, after: r.newContent });
-        badges.push(toolBadge(call) + ' (staged)');
+        stage(toolBadge(call), r.newContent);
       } else {
         const via = applyViaMonaco(editorRef, cur, call);
-        if (via !== null) {
-          setDocContent(via);
-        } else if (r.newContent !== undefined) {
-          setDocContent(r.newContent);
-        }
+        const nextVal = via !== null ? via : (r.newContent !== undefined ? r.newContent : cur);
+        contentRef.current = nextVal;
+        setDocContent(nextVal);
         badges.push(toolBadge(call));
       }
     }
@@ -209,13 +283,23 @@ export default function AiPlayground({
   ): Promise<void> {
     for (const tc of toolCalls.slice(0, 6)) {
       if (VIRTUAL_NAMES.has(tc.name)) {
-        const res = executeVirtualTool(contentRef.current, docMode, { name: tc.name, args: tc.args });
+        // Validate against cumulative staged state if in review mode
+        const activeContent = stagedRef.current ?? contentRef.current;
+        if (tc.name.includes('insert') || tc.name.includes('replace')) {
+          const problem = validateDocEdit(activeContent, { name: tc.name, args: tc.args });
+          if (problem) {
+            badges.push(`⚠️ ${tc.name} rejected: bad range`);
+            toolResults.push(`[${tc.name} REJECTED — not applied] ${problem} Fix the arguments and retry.`);
+            continue;
+          }
+        }
+        const res = executeVirtualTool(activeContent, docMode, { name: tc.name, args: tc.args });
         if (res.resultText !== undefined) {
           badges.push(toolBadge({ name: tc.name, args: tc.args }));
           toolResults.push(`[${tc.name} result]\n${res.resultText.slice(0, 2500)}`);
         } else if (res.newContent !== undefined || tc.name.includes('insert') || tc.name.includes('replace')) {
           stageOrApply({ name: tc.name, args: tc.args }, badges);
-          if (!diffMode) toolResults.push(`[${tc.name}] ${res.message}`);
+          toolResults.push(`[${tc.name}] ${res.message}${diffMode ? ' (staged for user diff review)' : ' (applied to editor)'}`);
         } else {
           toolResults.push(`[${tc.name}] ${res.message}`);
         }
@@ -263,6 +347,7 @@ export default function AiPlayground({
     }
     setSending(true);
     setInput('');
+    stagedRef.current = null; // fresh staging base for this turn
     let selCtx = '';
     if (selection && selection.text) selCtx = `\n\n[Selected Lines ${selection.startLine}-${selection.endLine}]:\n${selection.text.slice(0, 3000)}`;
     const userText = prompt + selCtx;
@@ -276,27 +361,60 @@ export default function AiPlayground({
         : '';
       const outline = getDocumentOutline(contentRef.current, docMode);
       const outlineText = outline.map((o) => `- ${o.title} (line ${o.line})`).join('\n');
-      const system = buildSystemPrompt(docMode, outlineText, contentRef.current, externalHint, fileName);
+      // Template-detected macros: reuse what the doc defines, never invent calls.
+      const detected = detectDocMacros(contentRef.current, docMode);
+      const macroHint = detected.length > 0
+        ? `- Custom macros defined in THIS document (reuse them; NEVER emit a macro call that is not defined here or in standard LaTeX): ${detected.map((m) => `\\${m}`).join(', ')}`
+        : `- The document defines no custom macros — use only standard LaTeX commands and the environments already present. NEVER invent macros like \\resumeItem or \\resumeSubheading.`;
+      // Selection bias: when text is selected, edits belong to that range.
+      const selHint = selection
+        ? `- The user selected lines ${selection.startLine}-${selection.endLine}. If this is an EDIT request, operate on that range with replace_lines. If it is a QUESTION, just answer — no tools.`
+        : '';
+      const system = buildSystemPrompt(docMode, outlineText, contentRef.current, externalHint, fileName, `${macroHint}\n${selHint}`);
       const history: ChatHistoryItem[] = messages.slice(-8).map((m) => ({ role: m.role, text: m.text.slice(0, 2000) }));
 
-      const turn = await callLlm(provider, { apiKey, baseUrl, model }, system, history, userText, extra);
       const badges: string[] = [];
       const toolResults: string[] = [];
-      await runToolCalls(turn.toolCalls, defs, badges, toolResults);
+      let finalText = '';
+      let convHistory = [...history];
+      let nextPrompt = userText;
 
-      let finalText = turn.text;
-      if (toolResults.length > 0) {
-        const follow = await callLlm(
-          provider, { apiKey, baseUrl, model }, system,
-          [...history, { role: 'user', text: userText }],
-          `Tool results:\n${toolResults.join('\n\n')}\n\nRespond concisely. ${diffMode ? 'Document edits are staged for user review — summarize them.' : 'Edits applied — summarize with line numbers.'}`,
-          extra,
-        );
-        if (follow.text) finalText = follow.text;
-        await runToolCalls(follow.toolCalls, defs, badges, toolResults);
+      const MAX_ROUNDS = 3;
+      for (let round = 0; round < MAX_ROUNDS; round++) {
+        const turn = await callLlm(provider, { apiKey, baseUrl, model }, system, convHistory, nextPrompt, extra);
+        if (turn.text) finalText = turn.text;
+
+        if (!turn.toolCalls || turn.toolCalls.length === 0) {
+          break;
+        }
+
+        const roundToolResults: string[] = [];
+        await runToolCalls(turn.toolCalls, defs, badges, roundToolResults);
+        toolResults.push(...roundToolResults);
+
+        if (roundToolResults.length === 0) {
+          break;
+        }
+
+        // Feed tool results back to model for follow-up edits, recovery, or concise summary
+        convHistory = [
+          ...convHistory,
+          { role: 'user', text: nextPrompt },
+          { role: 'assistant', text: turn.text || `Executing tools: ${turn.toolCalls.map((c) => c.name).join(', ')}` },
+        ];
+        nextPrompt = `Tool execution results:\n${roundToolResults.join('\n\n')}\n\nContinue with document edits if required, or provide a concise summary with exact line numbers. ${
+          diffMode ? 'Document edits are staged for user review.' : 'Edits have been applied to the document.'
+        }`;
       }
 
-      setMessages((m) => [...m, { role: 'assistant', text: finalText || (badges.length ? 'Done — see tool activity above.' : 'No changes made.'), badges }]);
+      setMessages((m) => [
+        ...m,
+        {
+          role: 'assistant',
+          text: finalText || (badges.length ? 'Done — see tool activity badges above.' : 'No changes made.'),
+          badges,
+        },
+      ]);
       clearSelection();
     } catch (err) {
       setMessages((m) => [...m, { role: 'assistant', text: `❌ ${err instanceof Error ? err.message : String(err)}` }]);
@@ -345,6 +463,17 @@ export default function AiPlayground({
           </span>
         )}
         <div className="spacer" />
+        <button
+          className="btn xs ghost"
+          onClick={() => {
+            setRecents(loadConversations());
+            setShowRecents((v) => !v);
+          }}
+          title="Recent conversations"
+          aria-label="Recent conversations"
+        >
+          <Icon name="history" size={13} /> <span className="btn-label optional">Recents</span>
+        </button>
         {onOpenReview && (
           <button className="btn xs ghost" onClick={onOpenReview} title="Autonomous Document Review Agent">
             <Icon name="sparkles" size={13} /> <span className="btn-label optional">Audit</span>
@@ -353,36 +482,99 @@ export default function AiPlayground({
       </div>
       {selection && selection.text && (
         <div className="sel-chip">
-          <Icon name="quote" size={13} />
-          <span>Lines {selection.startLine}-{selection.endLine} · {selection.text.length} chars</span>
-          <button className="btn xs primary" onClick={() => send(`Explain and improve this selection:\n${selection.text.slice(0, 2000)}`)}>
-            <Icon name="sparkles" size={12} /> Ask AI
-          </button>
-          <button className="btn xs ghost icon-btn" onClick={clearSelection} aria-label="Clear selection">
-            <Icon name="x" size={12} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '120px' }}>
+            <Icon name="quote" size={13} />
+            <span style={{ fontWeight: 600 }}>Lines {selection.startLine}-{selection.endLine}</span>
+            <span className="muted small hide-sm">({selection.text.length} chars)</span>
+          </div>
+          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center', marginLeft: 'auto' }}>
+            <button
+              className="btn xs primary"
+              title="Surgically rewrite selected lines"
+              onClick={() => send(`Rewrite selected lines ${selection.startLine}-${selection.endLine} using replace_lines. Make it concise, punchy, and keep LaTeX syntax valid.`)}
+            >
+              <Icon name="sparkles" size={12} /> Rewrite
+            </button>
+            <button
+              className="btn xs secondary"
+              title="Rewrite bullets using Google's X-Y-Z formula (Accomplished X by doing Y resulting in Z)"
+              onClick={() => send(`Rewrite selected lines ${selection.startLine}-${selection.endLine} using replace_lines. Apply Google's XYZ formula: start each bullet with a strong action verb (Engineered, Architected, Shipped), include quantifiable metrics, and preserve LaTeX macros.`)}
+            >
+              🎯 XYZ Formula
+            </button>
+            <button
+              className="btn xs ghost"
+              title="Fix syntax errors, spacing, or unmatched braces in selection"
+              onClick={() => send(`Check and fix any LaTeX syntax, unmatched braces, spacing, or formatting errors in selected lines ${selection.startLine}-${selection.endLine} using replace_lines.`)}
+            >
+              🧹 Fix Syntax
+            </button>
+            <button className="btn xs ghost icon-btn" onClick={clearSelection} aria-label="Clear selection" title="Clear selection">
+              <Icon name="x" size={12} />
+            </button>
+          </div>
         </div>
       )}
       <div className="chat-feed" ref={feedRef}>
-        {messages.map((m, i) => (
+        {showRecents ? (
+          <div className="convo-list">
+            <button className="btn xs primary" onClick={newChat}>
+              <Icon name="plus" size={12} /> New chat
+            </button>
+            {recents.length === 0 && (
+              <div className="muted small convo-empty">No past conversations yet. Chats save here automatically.</div>
+            )}
+            {recents.map((c) => (
+              <div
+                key={c.id}
+                className={`convo-item${c.id === convId ? ' active' : ''}`}
+                onClick={() => openConvo(c.id)}
+                title={c.title}
+              >
+                <div className="convo-title">{c.title}</div>
+                <div className="muted small convo-meta">
+                  {c.fileName || 'document'} · {c.messages.length} msgs · {formatTimeAgo(c.updatedAt)}
+                </div>
+                <button
+                  className="btn xs ghost icon-btn convo-del"
+                  title="Delete conversation"
+                  aria-label={`Delete ${c.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeConvo(c.id);
+                  }}
+                >
+                  <Icon name="trash" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
             {m.badges?.map((b, j) => <div key={j} className="badge">{b}</div>)}
-            <div className="bubble-text">{m.text}</div>
+            <div className={`bubble-text${m.text.length > 1500 && !expanded.has(i) ? ' clamped' : ''}`}>{m.text}</div>
+            {m.text.length > 1500 && (
+              <button className="btn xs ghost bubble-expand" onClick={() => toggleExpand(i)}>
+                {expanded.has(i) ? 'Show less' : `Show more (${m.text.length} chars)`}
+              </button>
+            )}
             {m.role === 'assistant' && (
               <div className="bubble-actions" style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
-                {m.text.length > 20 && (
+                {codeBlockOf(m.text) !== null && (
                   <button
                     className="btn xs secondary bubble-apply"
-                    title="Apply this text directly to the active document"
+                    title="Replace the document with the fenced code block above (a snapshot is saved first)"
                     onClick={() => {
-                      let code = m.text;
-                      const match = /```(?:latex|tex|markdown|md|typst|typ)?\s*\n([\s\S]*?)```/i.exec(m.text);
-                      if (match && match[1].trim()) code = match[1].trim();
+                      const code = codeBlockOf(m.text);
+                      if (!code) return;
+                      saveSnapshot('active', 'active-file', contentRef.current, 'Pre-apply checkpoint').catch(() => {});
                       setDocContent(code);
-                      toast('Applied to editor buffer!', 'success');
+                      toast('Code block applied to editor — snapshot saved in History', 'success');
                     }}
                   >
-                    <Icon name="bolt" size={12} /> Apply to Editor
+                    <Icon name="bolt" size={12} /> Apply code to Editor
                   </button>
                 )}
                 {m.text.length > 20 && (
@@ -405,6 +597,8 @@ export default function AiPlayground({
             <div className="bubble-text typing">Thinking + running MCP tools</div>
           </div>
         )}
+          </>
+        )}
       </div>
       {listening && (
         <div className="voice-live" role="status">
@@ -420,7 +614,11 @@ export default function AiPlayground({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Ask AI to read, write, or rewrite…"
+          placeholder={
+            selection && selection.text
+              ? `Instruct AI on lines ${selection.startLine}-${selection.endLine} (or click an action above)...`
+              : 'Ask AI to read, write, or rewrite…'
+          }
           aria-label="AI prompt"
         />
         <button className="btn primary icon-btn" onClick={() => send()} disabled={sending || !input.trim()} title="Send (Enter)" aria-label="Send prompt">
@@ -434,13 +632,18 @@ export default function AiPlayground({
           before={pending.before}
           after={pending.after}
           language={monacoLanguageFor(docMode)}
+          mode={docMode}
           theme={theme}
           onAccept={(final) => {
             setDocContent(final);
+            stagedRef.current = null;
             setMessages((m) => [...m, { role: 'assistant', text: `✅ Accepted: ${pending.summary}` }]);
             setPending(null);
           }}
-          onClose={() => setPending(null)}
+          onClose={() => {
+            stagedRef.current = null;
+            setPending(null);
+          }}
         />
       )}
       {permReq && (

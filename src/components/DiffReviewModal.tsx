@@ -4,22 +4,26 @@ import { applyHunks, computeHunks, hunkLabel } from '../lib/lineDiff';
 import { registerTypstLanguage } from '../lib/monacoTypst';
 import { DEXTER_DARK_THEME, DEXTER_LIGHT_THEME, MONACO_FONT, registerDexterThemes } from '../lib/monacoTheme';
 import ModalHeader from './ModalHeader';
+import PreviewPane from './PreviewPane';
+import type { DocMode } from '../lib/templates';
 
 interface Props {
   summary: string;
   before: string;
   after: string;
   language: string;
+  mode: DocMode;
   theme: 'dark' | 'light';
   onAccept: (finalContent: string) => void;
   onClose: () => void;
 }
 
-/** Phase 2: side-by-side Monaco diff with per-chunk Accept/Reject. */
-export default function DiffReviewModal({ summary, before, after, language, theme, onAccept, onClose }: Props) {
+/** Phase 2: side-by-side Monaco diff with per-chunk Accept/Reject + rendered preview. */
+export default function DiffReviewModal({ summary, before, after, language, mode, theme, onAccept, onClose }: Props) {
   const hunks = useMemo(() => computeHunks(before, after), [before, after]);
   const changeHunks = useMemo(() => hunks.filter((h) => h.kind !== 'equal'), [hunks]);
   const [accepted, setAccepted] = useState<Set<number>>(() => new Set(changeHunks.map((h) => h.id)));
+  const [tab, setTab] = useState<'code' | 'preview'>('preview');
   const preview = useMemo(() => applyHunks(before, hunks, accepted), [before, hunks, accepted]);
 
   function toggle(id: number) {
@@ -42,7 +46,12 @@ export default function DiffReviewModal({ summary, before, after, language, them
           onClose={onClose}
         />
         <div className="modal-body">
+        <div className="seg diff-tabs" role="group" aria-label="Review view">
+          <button className={tab === 'code' ? 'active' : ''} onClick={() => setTab('code')}>Code diff</button>
+          <button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Rendered preview</button>
+        </div>
         <div className="diff-body">
+          {tab === 'code' ? (
           <div className="diff-editor-wrap">
             <DiffEditor
               height="100%"
@@ -57,6 +66,11 @@ export default function DiffReviewModal({ summary, before, after, language, them
               options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 12.5, wordWrap: 'on', scrollBeyondLastLine: false }}
             />
           </div>
+          ) : (
+          <div className="diff-preview-wrap" title="Live render of the accepted chunks">
+            <PreviewPane content={preview} mode={mode} theme={theme} />
+          </div>
+          )}
           <aside className="hunk-list">
             {changeHunks.length === 0 && <span className="muted small">No changes.</span>}
             {changeHunks.map((h) => {

@@ -286,6 +286,8 @@ kbd {
 .badge.bad { border-color: var(--danger); }
 .badge.ext { border-color: var(--accent2); }
 .bubble-text { font-size: 13px; white-space: pre-wrap; }
+.bubble-text.clamped { max-height: 230px; overflow: hidden; }
+.bubble-expand { margin-top: 5px; }
 .bubble-text.typing::after { content: '▍'; animation: blink 1s steps(1) infinite; color: var(--accent); }
 .shimmer-wrap { overflow: hidden; border-radius: 4px; margin-bottom: 7px; height: 5px; background: var(--panel3); }
 .shimmer-bar { height: 100%; width: 40%; border-radius: 4px; background: var(--brand-grad); animation: shimmerBar 1.4s ease-in-out infinite; }
@@ -294,6 +296,21 @@ kbd {
 .chat-input { display: flex; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--border); flex: 0 0 auto; }
 .chat-input input { flex: 1; min-width: 0; }
 .chat-hint { padding: 0 12px 8px; color: var(--muted-dim); font-size: 11px; }
+
+/* ---- conversation recents ---- */
+.convo-list { display: flex; flex-direction: column; gap: 7px; }
+.convo-empty { text-align: center; padding: 22px 10px; border: 1px dashed var(--border); border-radius: var(--radius); }
+.convo-item {
+  position: relative;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+  padding: 9px 34px 9px 11px; cursor: pointer; background: var(--bubble-a);
+}
+.convo-item:hover { border-color: var(--muted-dim); }
+.convo-item.active { border-color: var(--accent); background: var(--accent-soft); }
+.convo-title { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convo-meta { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convo-del { position: absolute; top: 6px; right: 6px; opacity: 0; }
+.convo-item:hover .convo-del, .convo-item.active .convo-del { opacity: 1; }
 .voice-live {
   display: flex; align-items: center; gap: 9px;
   margin: 0 12px 8px; padding: 8px 12px;
@@ -504,7 +521,14 @@ kbd {
 
 /* ============ diff review ============ */
 .modal.xl .diff-body { display: flex; gap: 12px; min-height: 0; }
+.diff-tabs { align-self: flex-start; margin-bottom: 10px; }
 .diff-editor-wrap { flex: 1.5; min-width: 0; height: 52vh; min-height: 280px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg); }
+.diff-preview-wrap {
+  flex: 1.5; min-width: 0; height: 52vh; min-height: 280px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; display: flex; flex-direction: column; background: var(--panel);
+}
+.diff-preview-wrap .preview-scroll { flex: 1; min-height: 0; }
 .hunk-list { flex: 1; min-width: 230px; max-height: 52vh; min-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
 .hunk { border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 9px; font-size: 12px; background: var(--panel2); }
 .hunk.on { border-color: var(--accent2); }

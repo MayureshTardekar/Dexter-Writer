@@ -1,4 +1,5 @@
 import { VIRTUAL_MCP_TOOL_DEFS } from './virtualMcp';
+import { extractLatexMacros } from './latexParser';
 
 export type ProviderId = 'gemini' | 'openai' | 'anthropic' | 'ollama';
 
@@ -148,13 +149,46 @@ async function callGemini(apiKey: string, model: string, system: string, history
   return { text: text ?? '', toolCalls };
 }
 
-export function buildSystemPrompt(docMode: string, outlineText: string, docExcerpt: string, externalHint = '', fileName = ''): string {
+/**
+ * Detect user-defined LaTeX macros (\newcommand, \renewcommand, \def) in the
+ * document so the prompt can tell the model to REUSE them — instead of
+ * hardcoding template macros (e.g. Jake's \resumeItem) that may not exist,
+ * which would break compilation. Returns names WITHOUT the backslash.
+ */
+export function detectDocMacros(content: string, docMode: string): string[] {
+  if (docMode !== 'latex' || !content) return [];
+  try {
+    const { macros } = extractLatexMacros(content);
+    return [...macros.keys()].slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+export function buildSystemPrompt(
+  docMode: string,
+  outlineText: string,
+  docExcerpt: string,
+  externalHint = '',
+  fileName = '',
+  extraContext = '',
+): string {
   const targetDesc = fileName ? `the user's active file "${fileName}" (${docMode} format)` : `the user's active ${docMode} document`;
-  return `You are Dexter Write, an AI document editor with direct MCP tools over ${targetDesc}.
-Rules:
-- Prefer surgical tool calls (read_document_content, get_document_outline, insert_content, replace_lines) over dumping full rewrites in chat.
-- Keep math valid: Markdown inline $x$, block $$...$$; LaTeX must keep braces balanced; Typst uses $x$ math and = headings.
-${externalHint ? `- External MCP tools are available (prefixed mcp_). Use them to fetch live data (repos, search, citations), then write results into the document with the document tools.\n${externalHint}` : '- No external MCP servers connected.'}
+  const modeRules =
+    docMode === 'latex'
+      ? `- LaTeX hygiene (non-negotiable): braces must balance — every { must close; NEVER put enumitem options like [nosep,leftmargin=*] or spacing commands (\\vspace, \\hspace) into body text; reuse the document's existing macros and environments; keep \\\\ line breaks clean (never \\\\4pt); math stays inside $...$ or $$...$$.`
+      : docMode === 'typst'
+        ? `- Typst hygiene: = / == headings, $...$ math, - list items; NEVER invent #directives or functions; reuse what the document already uses.`
+        : `- Markdown hygiene: keep headings (#), GFM tables, and $...$ / $$...$$ math valid; never break fenced code blocks.`;
+  return `You are Dexter Write, an AI document editor with direct MCP tools over ${targetDesc}. Work like a careful IDE assistant, not a chatbot.
+Workflow (follow strictly):
+1. If the user asks a QUESTION, answer it in chat first. Only call tools when they asked for an edit.
+2. READ BEFORE YOU WRITE: before any insert/replace, call read_document_content on the exact line range you plan to change (or get_document_outline first for large docs). Never assume what is in the file.
+3. Be SURGICAL: prefer one replace_lines over the smallest range that covers the change. Use insert_content only for genuinely new blocks. NEVER re-insert the preamble (\\documentclass, #set page, imports) and NEVER duplicate a section that already exists — update it in place.
+4. One coherent edit per turn; batch related hunks instead of many tiny calls.
+5. RESUME & WRITING EXCELLENCE: If editing or writing resume bullets, use Google's X-Y-Z formula (Accomplished [X] measured by [Y] by doing [Z]). Start each bullet with a strong action verb (Engineered, Architected, Shipped, Automated, Optimized). Never produce generic, passive filler.
+${modeRules}
+${extraContext ? `${extraContext}\n` : ''}${externalHint ? `- External MCP tools are available (prefixed mcp_). Use them to fetch live data (repos, search, citations), then write results into the document with the document tools.\n${externalHint}` : '- No external MCP servers connected.'}
 - If no tool is needed, answer concisely in chat.
 - After tools, summarize what changed with line numbers.
 Document outline:\n${outlineText || '(empty)'}\n\nDocument excerpt (may be truncated):\n${docExcerpt.slice(0, 6000)}`;
