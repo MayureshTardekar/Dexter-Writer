@@ -50,3 +50,22 @@ describe('detectDocMacros — template-aware prompting', () => {
     expect(detectDocMacros('', 'latex')).toEqual([]);
   });
 });
+
+describe('PROVIDERS registry', () => {
+  it('includes NVIDIA NIM with integrate endpoint and llama 3.3 default', async () => {
+    const { PROVIDERS } = await import('../aiGateway');
+    const nvidia = PROVIDERS.find((p) => p.id === 'nvidia');
+    expect(nvidia).toBeDefined();
+    expect(nvidia?.defaultBaseUrl).toBe('https://integrate.api.nvidia.com/v1');
+    expect(nvidia?.defaultModel).toBe('meta/llama-3.3-70b-instruct');
+    expect(nvidia?.needsKey).toBe(true);
+  });
+
+  it('includes Groq and OpenRouter presets', async () => {
+    const { PROVIDERS } = await import('../aiGateway');
+    const groq = PROVIDERS.find((p) => p.id === 'groq');
+    expect(groq?.defaultBaseUrl).toBe('https://api.groq.com/openai/v1');
+    const openrouter = PROVIDERS.find((p) => p.id === 'openrouter');
+    expect(openrouter?.defaultBaseUrl).toBe('https://openrouter.ai/api/v1');
+  });
+});

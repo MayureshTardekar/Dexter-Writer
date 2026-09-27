@@ -232,8 +232,11 @@ export default function App() {
   }, [files]);
 
   useEffect(() => {
-    const info = PROVIDERS.find((p) => p.id === provider)!;
+    const info = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
     setModel(localStorage.getItem('dexter-write:model') || info.defaultModel);
+    if (info.defaultBaseUrl && !localStorage.getItem('dexter-write:baseUrl')) {
+      setBaseUrl(info.defaultBaseUrl);
+    }
     vaultGet(info.keyName).then((k) => setApiKey(k));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);

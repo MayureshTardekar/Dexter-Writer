@@ -19,7 +19,8 @@ interface Props {
 export default function ByokModal({ provider, setProvider, model, setModel, baseUrl, setBaseUrl, apiKey, setApiKey, saveKey, onClose }: Props) {
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
-  const info = PROVIDERS.find((p) => p.id === provider)!;
+  const info = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+  const hasBaseUrl = Boolean(info.defaultBaseUrl || provider === 'ollama');
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -27,15 +28,30 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
         <ModalHeader icon="key" title="BYOK Security Vault" category="Security" sub="Keys are AES-GCM encrypted in localStorage. Requests go direct to providers — no middleman." onClose={onClose} />
         <div className="modal-body">
         <label>Provider</label>
-        <select value={provider} onChange={(e) => { setProvider(e.target.value as ProviderId); const d = PROVIDERS.find((p) => p.id === e.target.value)!; setModel(d.defaultModel); }}>
+        <select
+          value={provider}
+          onChange={(e) => {
+            const next = e.target.value as ProviderId;
+            setProvider(next);
+            const d = PROVIDERS.find((p) => p.id === next) ?? PROVIDERS[0];
+            setModel(d.defaultModel);
+            if (d.defaultBaseUrl) {
+              setBaseUrl(d.defaultBaseUrl);
+            }
+          }}
+        >
           {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
         <label>Model</label>
         <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={info.defaultModel} />
-        {provider === 'ollama' && (
+        {hasBaseUrl && (
           <>
             <label>Base URL</label>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://localhost:11434/v1" />
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={info.defaultBaseUrl || 'http://localhost:11434/v1'}
+            />
           </>
         )}
         {info.needsKey && (

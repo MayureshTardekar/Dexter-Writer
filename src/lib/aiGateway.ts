@@ -1,12 +1,13 @@
 import { VIRTUAL_MCP_TOOL_DEFS } from './virtualMcp';
 import { extractLatexMacros } from './latexParser';
 
-export type ProviderId = 'gemini' | 'openai' | 'anthropic' | 'ollama';
+export type ProviderId = 'gemini' | 'nvidia' | 'groq' | 'openrouter' | 'openai' | 'anthropic' | 'ollama';
 
 export interface ProviderInfo {
   id: ProviderId;
   label: string;
   defaultModel: string;
+  defaultBaseUrl?: string;
   needsKey: boolean;
   keyName: string;
   help: string;
@@ -14,9 +15,12 @@ export interface ProviderInfo {
 
 export const PROVIDERS: ProviderInfo[] = [
   { id: 'gemini', label: 'Google Gemini', defaultModel: 'gemini-2.0-flash', needsKey: true, keyName: 'gemini', help: 'Google AI Studio key (AIza…).' },
-  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },
+  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: 'meta/llama-3.3-70b-instruct', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Free endpoints at build.nvidia.com' },
+  { id: 'groq', label: 'Groq Cloud (Ultra Fast)', defaultModel: 'llama-3.3-70b-versatile', defaultBaseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyName: 'groq', help: 'Groq API key (gsk_…). Free ultra-fast 300 t/s at console.groq.com' },
+  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'meta-llama/llama-3.3-70b-instruct', defaultBaseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyName: 'openrouter', help: 'OpenRouter key (sk-or-…). Access 200+ models at openrouter.ai' },
+  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBaseUrl: 'https://api.openai.com/v1', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },
   { id: 'anthropic', label: 'Anthropic Claude', defaultModel: 'claude-3-5-sonnet-latest', needsKey: true, keyName: 'anthropic', help: 'sk-ant-… key. Note: browsers may hit CORS; use Ollama if blocked.' },
-  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.1', needsKey: false, keyName: 'ollama-base', help: 'Local endpoint, e.g. http://localhost:11434/v1. Run with OLLAMA_ORIGINS=*' },
+  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.1', defaultBaseUrl: 'http://localhost:11434/v1', needsKey: false, keyName: 'ollama-base', help: 'Local endpoint, e.g. http://localhost:11434/v1. Run with OLLAMA_ORIGINS=*' },
 ];
 
 export interface LlmToolCall {
@@ -91,11 +95,44 @@ async function callOpenAiCompatible(
     ...history.map((h) => ({ role: h.role, content: h.text })),
     { role: 'user', content: userText },
   ];
-  const res = await fetch(url, {
+  const tools = openAiTools(extra);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+  };
+  if (baseUrl.includes('openrouter.ai')) {
+    headers['HTTP-Referer'] = 'https://github.com/MayureshTardekar/Dexter-Writer';
+    headers['X-Title'] = 'Dexter Write';
+  }
+
+  const makeBody = (includeTools: boolean) =>
+    JSON.stringify({
+      model,
+      messages,
+      ...(includeTools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+      temperature: 0.4,
+    });
+
+  let res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-    body: JSON.stringify({ model, messages, tools: openAiTools(extra), tool_choice: 'auto', temperature: 0.4 }),
+    headers,
+    body: makeBody(true),
   });
+
+  // Gracefully fallback if the model doesn't support tools (e.g. DeepSeek-R1 or reasoning models on NIM)
+  if (!res.ok && res.status === 400 && tools.length > 0) {
+    const errPreview = await res.text();
+    if (/tool|function/i.test(errPreview)) {
+      res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: makeBody(false),
+      });
+    } else {
+      throw new Error(`OpenAI-compatible error ${res.status}: ${errPreview}`.slice(0, 500));
+    }
+  }
+
   if (!res.ok) throw new Error(`OpenAI-compatible error ${res.status}: ${await res.text()}`.slice(0, 500));
   const data = await res.json();
   const msg = data.choices?.[0]?.message ?? {};
@@ -221,10 +258,28 @@ export async function callLlm(
   userText: string,
   extra: ExtraToolDef[] = [],
 ): Promise<LlmTurn> {
-  const fallbackModel = PROVIDERS.find((p) => p.id === provider)?.defaultModel ?? 'gemini-2.0-flash';
+  const providerInfo = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+  const fallbackModel = providerInfo.defaultModel;
   const model = opts.model.trim() || fallbackModel;
-  if (provider === 'openai') return callOpenAiCompatible('https://api.openai.com/v1', opts.apiKey, model, system, history, userText, extra);
-  if (provider === 'ollama') return callOpenAiCompatible(opts.baseUrl || 'http://localhost:11434/v1', '', model, system, history, userText, extra);
-  if (provider === 'anthropic') return callAnthropic(opts.apiKey, model, system, history, userText, extra);
+  const baseUrl = opts.baseUrl.trim() || providerInfo.defaultBaseUrl || '';
+
+  if (provider === 'nvidia') {
+    return callOpenAiCompatible(baseUrl || 'https://integrate.api.nvidia.com/v1', opts.apiKey, model, system, history, userText, extra);
+  }
+  if (provider === 'groq') {
+    return callOpenAiCompatible(baseUrl || 'https://api.groq.com/openai/v1', opts.apiKey, model, system, history, userText, extra);
+  }
+  if (provider === 'openrouter') {
+    return callOpenAiCompatible(baseUrl || 'https://openrouter.ai/api/v1', opts.apiKey, model, system, history, userText, extra);
+  }
+  if (provider === 'openai') {
+    return callOpenAiCompatible(baseUrl || 'https://api.openai.com/v1', opts.apiKey, model, system, history, userText, extra);
+  }
+  if (provider === 'ollama') {
+    return callOpenAiCompatible(baseUrl || 'http://localhost:11434/v1', '', model, system, history, userText, extra);
+  }
+  if (provider === 'anthropic') {
+    return callAnthropic(opts.apiKey, model, system, history, userText, extra);
+  }
   return callGemini(opts.apiKey, model, system, history, userText, extra);
 }
