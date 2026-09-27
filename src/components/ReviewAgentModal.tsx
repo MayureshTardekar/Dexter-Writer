@@ -11,14 +11,14 @@ import {
 import { replaceLines } from '../lib/virtualMcp';
 import { saveSnapshot } from '../lib/history';
 import { toast } from '../lib/toast';
-import type { ProviderId } from '../lib/aiGateway';
+import { resolveProvider } from '../lib/aiGateway';
 import type { DocMode } from '../lib/templates';
 
 interface Props {
   content: string;
   onApplyContent: (newContent: string) => void;
   mode: DocMode;
-  provider: ProviderId;
+  provider: string;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -51,7 +51,7 @@ export default function ReviewAgentModal({
   const [filter, setFilter] = useState<'all' | 'critical' | 'warning' | 'suggestion'>('all');
 
   async function handleRunAudit() {
-    if (provider !== 'ollama' && !apiKey) {
+    if (resolveProvider(provider).needsKey && !apiKey) {
       toast('Please set an API key in BYOK settings first', 'error');
       return;
     }

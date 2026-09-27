@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { buildSystemPrompt, callLlm, detectDocMacros, type ChatHistoryItem, type ExtraToolDef, type ProviderId } from '../lib/aiGateway';
+import { buildSystemPrompt, callLlm, detectDocMacros, resolveProvider, type ChatHistoryItem, type ExtraToolDef } from '../lib/aiGateway';
 import { getDocumentOutline } from '../lib/docUtils';
 import { executeVirtualTool, toolBadge, validateDocEdit, type McpToolCall } from '../lib/virtualMcp';
 import { insertContent as strInsert, replaceLines as strReplace } from '../lib/virtualMcp';
@@ -37,7 +37,7 @@ interface Props {
   docContent: string;
   setDocContent: (v: string) => void;
   docMode: DocMode;
-  provider: ProviderId;
+  provider: string;
   apiKey: string;
   model: string;
   baseUrl: string;
@@ -340,7 +340,7 @@ export default function AiPlayground({
   async function send(promptOverride?: string) {
     const prompt = (promptOverride ?? input).trim();
     if (!prompt || sending) return;
-    if (provider !== 'ollama' && !apiKey) {
+    if (resolveProvider(provider).needsKey && !apiKey) {
       setMessages((m) => [...m, { role: 'user', text: prompt }, { role: 'assistant', text: '⚠️ No API key set. Open **BYOK** (top-right) and save a key, or switch to Ollama local.' }]);
       setInput('');
       return;

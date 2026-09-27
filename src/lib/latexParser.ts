@@ -482,11 +482,11 @@ export function parseLatexLevel3(tex: string): string {
 
   // 13b. Fix CommonMark bold delimiter space invalidation (e.g. "** Name**" -> "**Name**")
   s = s
-    .replace(/\*\*([ \t]+)([^\*\n]+?)\*\*/g, '**$2**')
-    .replace(/\*\*([^\*\n]+?)([ \t]+)\*\*/g, '**$1**');
+    .replace(/\*\*([ \t]+)([^*\n]+?)\*\*/g, '**$2**')
+    .replace(/\*\*([^*\n]+?)([ \t]+)\*\*/g, '**$1**');
 
   // Strip 2-8 space indentation from normal text lines so CommonMark does not turn them into code blocks
-  s = s.replace(/^[ ]{2,8}(?!\*|\-|\d+\.|#|>|`|\|)/gm, '');
+  s = s.replace(/^[ ]{2,8}(?!\*|-|\d+\.|#|>|`|\|)/gm, '');
 
   // 14. Restore Code Blocks, TikZ, and Escaped Symbols
   s = s.replace(/%%CODEBLOCK_(\d+)%%/g, (_m, idx) => codeBlocks[Number(idx)] || '');

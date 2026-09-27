@@ -1,4 +1,4 @@
-import { callLlm, type ProviderId } from './aiGateway';
+import { callLlm } from './aiGateway';
 import type { DocMode } from './templates';
 
 export type AuditPreset = 'resume' | 'academic' | 'techdoc' | 'general';
@@ -119,7 +119,7 @@ export function cleanJson(raw: string): string {
 }
 
 export async function runDocumentAudit(
-  provider: ProviderId,
+  provider: string,
   credentials: { apiKey: string; baseUrl: string; model: string },
   content: string,
   mode: DocMode,

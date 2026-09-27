@@ -1,10 +1,11 @@
 import { VIRTUAL_MCP_TOOL_DEFS } from './virtualMcp';
 import { extractLatexMacros } from './latexParser';
+import { loadCustomProviders, customKeyName } from './customProviders';
 
 export type ProviderId = 'gemini' | 'nvidia' | 'groq' | 'openrouter' | 'openai' | 'anthropic' | 'ollama';
 
 export interface ProviderInfo {
-  id: ProviderId;
+  id: string;
   label: string;
   defaultModel: string;
   defaultBaseUrl?: string;
@@ -251,35 +252,56 @@ Document outline:\n${outlineText || '(empty)'}\n\nDocument excerpt (may be trunc
 }
 
 export async function callLlm(
-  provider: ProviderId,
+  provider: string,
   opts: { apiKey: string; baseUrl: string; model: string },
   system: string,
   history: ChatHistoryItem[],
   userText: string,
   extra: ExtraToolDef[] = [],
 ): Promise<LlmTurn> {
-  const providerInfo = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
-  const fallbackModel = providerInfo.defaultModel;
-  const model = opts.model.trim() || fallbackModel;
-  const baseUrl = opts.baseUrl.trim() || providerInfo.defaultBaseUrl || '';
+  const info = resolveProvider(provider);
+  const model = opts.model.trim() || info.defaultModel;
+  const baseUrl = opts.baseUrl.trim() || info.defaultBaseUrl || '';
 
-  if (provider === 'nvidia') {
-    return callOpenAiCompatible(baseUrl || 'https://integrate.api.nvidia.com/v1', opts.apiKey, model, system, history, userText, extra);
-  }
-  if (provider === 'groq') {
-    return callOpenAiCompatible(baseUrl || 'https://api.groq.com/openai/v1', opts.apiKey, model, system, history, userText, extra);
-  }
-  if (provider === 'openrouter') {
-    return callOpenAiCompatible(baseUrl || 'https://openrouter.ai/api/v1', opts.apiKey, model, system, history, userText, extra);
-  }
-  if (provider === 'openai') {
-    return callOpenAiCompatible(baseUrl || 'https://api.openai.com/v1', opts.apiKey, model, system, history, userText, extra);
-  }
-  if (provider === 'ollama') {
-    return callOpenAiCompatible(baseUrl || 'http://localhost:11434/v1', '', model, system, history, userText, extra);
+  if (info.defaultBaseUrl) {
+    // Every OpenAI-compatible transport: OpenAI, NVIDIA NIM, Groq,
+    // OpenRouter, Ollama, and user-registered custom endpoints.
+    return callOpenAiCompatible(
+      baseUrl || info.defaultBaseUrl,
+      provider === 'ollama' ? '' : opts.apiKey,
+      model,
+      system,
+      history,
+      userText,
+      extra,
+    );
   }
   if (provider === 'anthropic') {
     return callAnthropic(opts.apiKey, model, system, history, userText, extra);
   }
   return callGemini(opts.apiKey, model, system, history, userText, extra);
+}
+
+/**
+ * Resolve any provider id (builtin or `custom:<…>`) to its connection info.
+ * Unknown ids fall back to the default provider — never throw on bad state.
+ */
+export function resolveProvider(id: string): ProviderInfo {
+  const builtin = PROVIDERS.find((p) => p.id === id);
+  if (builtin) return builtin;
+  if (id.startsWith('custom:')) {
+    const def = loadCustomProviders().find((c) => c.id === id);
+    if (def) {
+      return {
+        id: def.id,
+        label: def.name,
+        defaultModel: def.model,
+        defaultBaseUrl: def.baseUrl,
+        needsKey: !def.noKey,
+        keyName: customKeyName(def.id),
+        help: `Custom OpenAI-compatible endpoint at ${def.baseUrl}.`,
+      };
+    }
+  }
+  return PROVIDERS[0];
 }

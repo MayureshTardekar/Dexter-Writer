@@ -19,7 +19,7 @@ import { type CitationEntry } from './lib/citations';
 import { saveSnapshot } from './lib/history';
 import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
 import { getDocStats, getDocumentOutline } from './lib/docUtils';
-import { PROVIDERS, type ProviderId } from './lib/aiGateway';
+import { resolveProvider } from './lib/aiGateway';
 import { vaultGet, vaultSet } from './lib/vault';
 import { doExport, exportProjectZip, type ExportKind } from './lib/exportDoc';
 import { loadServers, saveServers, type ExternalMcpServer } from './lib/externalMcp';
@@ -53,7 +53,7 @@ export default function App() {
   const [files, setFiles] = useState<ProjectFile[]>(() => loadProject().files);
   const [activeId, setActiveId] = useState<string>(() => loadProject().activeId);
   const [templateId, setTemplateId] = useState('resume-md');
-  const [provider, setProvider] = useState<ProviderId>(() => (localStorage.getItem('dexter-write:provider') as ProviderId) || 'gemini');
+  const [provider, setProvider] = useState<string>(() => localStorage.getItem('dexter-write:provider') || 'gemini');
   const [model, setModel] = useState(() => localStorage.getItem('dexter-write:model') || 'gemini-2.0-flash');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('dexter-write:baseUrl') || 'http://localhost:11434/v1');
   const [apiKey, setApiKey] = useState('');
@@ -232,7 +232,7 @@ export default function App() {
   }, [files]);
 
   useEffect(() => {
-    const info = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+    const info = resolveProvider(provider);
     setModel(localStorage.getItem('dexter-write:model') || info.defaultModel);
     if (info.defaultBaseUrl && !localStorage.getItem('dexter-write:baseUrl')) {
       setBaseUrl(info.defaultBaseUrl);
@@ -393,7 +393,7 @@ export default function App() {
   }, []);
 
   const saveKey = useCallback(async (k: string) => {
-    const info = PROVIDERS.find((p) => p.id === provider)!;
+    const info = resolveProvider(provider);
     await vaultSet(info.keyName, k);
   }, [provider]);
 
@@ -734,7 +734,7 @@ export default function App() {
             <Icon name="plug" size={14} /><span className="btn-label optional">{connectedCount > 0 ? `MCP ${connectedCount}` : 'MCP'}</span>
           </button>
           <button className="btn xs" onClick={() => setShowByok(true)} title="BYOK settings">
-            <Icon name="key" size={14} /><span className="btn-label optional">{provider}</span>
+            <Icon name="key" size={14} /><span className="btn-label optional">{resolveProvider(provider).label}</span>
             <span className={`dot ${apiKey ? 'connected' : ''}`} title={apiKey ? 'Key saved' : 'No key'} />
           </button>
           <select
@@ -768,7 +768,7 @@ export default function App() {
             <div className="pane-head">
               <span className="pane-title">AI Playground</span>
               <span className="pane-actions">
-                <span className="muted small hide-sm">{PROVIDERS.find((p) => p.id === provider)?.label}</span>
+                <span className="muted small hide-sm">{resolveProvider(provider).label}</span>
                 <button className="btn xs ghost icon-btn" onClick={() => toggleMax('left')} title={maximized === 'left' ? 'Restore split view' : 'Maximize playground'}>
                   <Icon name={maximized === 'left' ? 'minimize' : 'expand'} size={13} />
                 </button>
@@ -959,8 +959,8 @@ export default function App() {
         )}
         <span className="stat hide-mobile">{files.length} files</span>
         {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
-        <span className="stat hide-mobile">{provider}:{model}</span>
-        <span className="stat">{apiKey ? 'Key saved' : provider === 'ollama' ? 'Local mode' : 'No key'}</span>
+        <span className="stat hide-mobile">{resolveProvider(provider).label}:{model}</span>
+        <span className="stat">{apiKey ? 'Key saved' : !resolveProvider(provider).needsKey ? 'Local mode' : 'No key'}</span>
         <span className="stat" title={online ? 'Online' : 'Offline — local mode'}>
           <span className={`offline-dot${online ? '' : ' off'}`} />
           {online ? 'Online' : 'Offline'}
