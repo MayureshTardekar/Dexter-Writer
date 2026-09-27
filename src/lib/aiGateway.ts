@@ -16,7 +16,7 @@ export interface ProviderInfo {
 
 export const PROVIDERS: ProviderInfo[] = [
   { id: 'gemini', label: 'Google Gemini', defaultModel: 'gemini-2.0-flash', needsKey: true, keyName: 'gemini', help: 'Google AI Studio key (AIza…).' },
-  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: 'meta/llama-3.3-70b-instruct', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Free endpoints at build.nvidia.com' },
+  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: 'meta/muse-glimmer-30b', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Free endpoints at build.nvidia.com' },
   { id: 'groq', label: 'Groq Cloud (Ultra Fast)', defaultModel: 'llama-3.3-70b-versatile', defaultBaseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyName: 'groq', help: 'Groq API key (gsk_…). Free ultra-fast 300 t/s at console.groq.com' },
   { id: 'openrouter', label: 'OpenRouter', defaultModel: 'meta-llama/llama-3.3-70b-instruct', defaultBaseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyName: 'openrouter', help: 'OpenRouter key (sk-or-…). Access 200+ models at openrouter.ai' },
   { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBaseUrl: 'https://api.openai.com/v1', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },
@@ -90,7 +90,17 @@ async function callOpenAiCompatible(
   userText: string,
   extra: ExtraToolDef[] = [],
 ): Promise<LlmTurn> {
-  const url = baseUrl.replace(/\/$/, '') + '/chat/completions';
+  let effectiveBaseUrl = baseUrl;
+  // If running in browser on localhost/127.0.0.1, route NVIDIA NIM through the local Vite proxy to eliminate CORS
+  if (
+    typeof window !== 'undefined' &&
+    /^(localhost|127\.0\.0\.1)/.test(window.location.hostname) &&
+    effectiveBaseUrl.includes('integrate.api.nvidia.com')
+  ) {
+    effectiveBaseUrl = effectiveBaseUrl.replace(/https?:\/\/integrate\.api\.nvidia\.com/, '/api/nvidia');
+  }
+
+  const url = effectiveBaseUrl.replace(/\/$/, '') + '/chat/completions';
   const messages: Array<{ role: string; content: string }> = [
     { role: 'system', content: system },
     ...history.map((h) => ({ role: h.role, content: h.text })),
@@ -142,7 +152,10 @@ async function callOpenAiCompatible(
     args: safeJsonParse(tc.function?.arguments ?? '{}'),
     id: tc.id ?? `call-${i}`,
   }));
-  return { text: typeof msg.content === 'string' ? msg.content : '', toolCalls };
+  const text = (typeof msg.content === 'string' && msg.content)
+    ? msg.content
+    : (typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '');
+  return { text, toolCalls };
 }
 
 async function callAnthropic(apiKey: string, model: string, system: string, history: ChatHistoryItem[], userText: string, extra: ExtraToolDef[] = []): Promise<LlmTurn> {

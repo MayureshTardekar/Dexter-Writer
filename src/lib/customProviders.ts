@@ -105,7 +105,14 @@ export function deleteCustomProvider(id: string): CustomProvider[] {
 
 /** Test an endpoint the same way providers list models: GET {base}/models. */
 export async function testCustomEndpoint(baseUrl: string, apiKey: string): Promise<{ ok: boolean; models: string[]; error?: string }> {
-  const base = normalizeBaseUrl(baseUrl);
+  let base = normalizeBaseUrl(baseUrl);
+  if (
+    typeof window !== 'undefined' &&
+    /^(localhost|127\.0\.0\.1)/.test(window.location.hostname) &&
+    base.includes('integrate.api.nvidia.com')
+  ) {
+    base = base.replace(/https?:\/\/integrate\.api\.nvidia\.com/, '/api/nvidia');
+  }
   let res: Response;
   try {
     res = await fetch(`${base}/models`, {
