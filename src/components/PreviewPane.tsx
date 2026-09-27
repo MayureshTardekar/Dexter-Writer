@@ -1,8 +1,9 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
 import "katex/dist/katex.min.css";
 import { latexToReadable, typstToReadable } from "../lib/docUtils";
 import { rehypeSourceLine } from "../lib/rehypeSourceLine";
@@ -86,10 +87,16 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
 }
 
 // Markdown / LaTeX rich preview
-function MarkdownPreview({ content, theme = "dark", sourceMap = true, onSourceJump, zoom = 1.0 }: {
-  content: string; theme?: "dark" | "light"; sourceMap?: boolean; onSourceJump?: (info: SourceJump) => void; zoom?: number;
+function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, onSourceJump, zoom = 1.0 }: {
+  content: string; theme?: "dark" | "light"; sourceMap?: boolean; allowHtml?: boolean; onSourceJump?: (info: SourceJump) => void; zoom?: number;
 }) {
-  const rehypePlugins = useMemo(() => (sourceMap ? [rehypeKatex, rehypeSourceLine] : [rehypeKatex]), [sourceMap]);
+  const rehypePlugins = useMemo(() => {
+    const plugins: unknown[] = [rehypeKatex];
+    if (allowHtml) plugins.unshift(rehypeRaw);
+    if (sourceMap) plugins.push(rehypeSourceLine);
+    return plugins;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceMap, allowHtml]);
   if (!content.trim()) {
     return (
       <div className="preview-scroll">
@@ -312,7 +319,7 @@ export default function PreviewPane({ content, mode, theme, onSourceJump }: {
       {zoomBar}
       {compilingPdf && <div className="preview-pdf-status compiling">Compiling LaTeX...</div>}
       {pdfError && <div className="preview-pdf-status error">Compilation failed: {pdfError}</div>}
-      <MarkdownPreview content={md} theme={theme} sourceMap={exact} onSourceJump={onSourceJump} zoom={zoom} />
+      <MarkdownPreview content={md} theme={theme} sourceMap={exact} allowHtml={isLatex} onSourceJump={onSourceJump} zoom={zoom} />
     </>
   );
 }

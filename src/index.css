@@ -601,6 +601,147 @@ pre.preview-doc code { background: none; border: none; padding: 0; color: inheri
 .preview-pdf-status.compiling { color: var(--accent2); }
 .preview-pdf-status.error { color: var(--danger); }
 
+/* ============ Jake's Resume Template — Layout Elements ============ */
+
+/* Section headers: small-caps + underline rule like LaTeX titlesec */
+.preview-doc h2.resume-section {
+  font-family: "Georgia", serif;
+  font-size: 10.5pt;
+  font-weight: 400;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  text-transform: none; /* small-caps handles capitalisation */
+  border-bottom: 1px solid #1a1a1a;
+  padding-bottom: 2px;
+  margin: 16px 0 6px;
+  color: #0a0a0a;
+}
+
+/* Centered header block (name + contact) */
+.preview-doc .resume-center {
+  text-align: center;
+  margin-bottom: 4px;
+}
+.preview-doc .resume-center strong,
+.preview-doc .resume-center b {
+  font-size: 18pt;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  display: block;
+  margin-bottom: 3px;
+}
+.preview-doc .resume-center a {
+  color: #1a56b0;
+  text-decoration: none;
+}
+.preview-doc .resume-center a:hover { text-decoration: underline; }
+
+/* Two-column subheading: bold name + location, italic role + dates */
+.resume-subheading {
+  margin: 6px 0 2px;
+}
+.resume-sh-row1,
+.resume-sh-row2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+}
+.resume-sh-name {
+  font-weight: 700;
+  font-size: 10.5pt;
+  color: #0a0a0a;
+}
+.resume-sh-loc {
+  font-size: 10pt;
+  color: #1a1a1a;
+  text-align: right;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+.resume-sh-role {
+  font-style: italic;
+  font-size: 10pt;
+  color: #1a1a1a;
+}
+.resume-sh-dates {
+  font-style: italic;
+  font-size: 10pt;
+  color: #1a1a1a;
+  text-align: right;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+/* Project heading: name + tech tags | year */
+.resume-project-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+  margin: 8px 0 1px;
+  gap: 8px;
+}
+.resume-proj-left {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.resume-proj-name {
+  font-weight: 700;
+  font-size: 10.5pt;
+  color: #0a0a0a;
+}
+.resume-proj-tech {
+  font-style: italic;
+  font-size: 9.5pt;
+  color: #444;
+}
+.resume-proj-link {
+  font-size: 9pt;
+  color: #1a56b0;
+  text-decoration: none;
+  vertical-align: super;
+}
+.resume-proj-year {
+  font-size: 10pt;
+  color: #1a1a1a;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+/* Resume item bullet list — tight spacing like LaTeX enumitem noitemsep */
+.preview-doc .resume-item-list,
+ul.resume-item-list {
+  margin: 2px 0 4px 14px;
+  padding: 0;
+  list-style: disc;
+}
+.preview-doc .resume-item-list li,
+ul.resume-item-list li {
+  margin: 1px 0;
+  font-size: 10pt;
+  line-height: 1.5;
+  color: #1a1a1a;
+}
+
+/* Subheading container */
+.resume-subh-list {
+  margin: 0;
+  padding: 0;
+}
+
+/* Resume contact line (center block paragraphs) */
+.preview-doc .resume-center p {
+  text-align: center;
+  margin: 1px 0;
+  font-size: 10pt;
+  color: #333;
+}
+
 /* ============ statusbar ============ */
 .statusbar {
   display: flex; align-items: center; gap: 0;
