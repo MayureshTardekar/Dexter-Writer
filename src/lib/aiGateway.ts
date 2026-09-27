@@ -134,12 +134,31 @@ async function callGemini(apiKey: string, model: string, system: string, history
     ...history.map((h) => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })),
     { role: 'user', parts: [{ text: userText }] },
   ];
-  const res = await fetch(url, {
+  const payload = JSON.stringify({ system_instruction: { parts: [{ text: system }] }, contents, tools: geminiTools(extra) });
+  let res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system_instruction: { parts: [{ text: system }] }, contents, tools: geminiTools(extra) }),
+    body: payload,
   });
-  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`.slice(0, 500));
+
+  // Handle temporary 503 (high demand) or 429 (rate spike) with a quick retry
+  if (res.status === 503 || res.status === 429) {
+    await new Promise((resolve) => setTimeout(resolve, 1800));
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+  }
+
+  if (!res.ok) {
+    const errText = await res.text();
+    let msg = `Gemini error ${res.status}: ${errText}`.slice(0, 500);
+    if (res.status === 503) {
+      msg = `Gemini server is temporarily busy (503). Please retry in a few seconds, or switch model in BYOK.`;
+    }
+    throw new Error(msg);
+  }
   const data = await res.json();
   const parts = data.candidates?.[0]?.content?.parts ?? [];
   const text = parts.filter((p: { text?: string }) => p.text).map((p: { text: string }) => p.text).join('\n');

@@ -248,6 +248,27 @@ export function parseLatexTabular(tabularBody: string): string {
   }
 
   const maxCols = Math.max(...parsedRows.map((r) => r.length), 1);
+
+  // Resume subheading layout: 2-column key-value or title-date blocks without \hline
+  // (e.g. Institution & Location \\ Degree & Dates).
+  // Render as clean markdown lines with em-dash separator rather than an Excel table.
+  if (parsedRows.length <= 3 && maxCols === 2 && !tabularBody.includes('\\hline')) {
+    return (
+      '\n\n' +
+      parsedRows
+        .map((cols) => {
+          const left = (cols[0] || '').trim();
+          const right = (cols[1] || '').trim();
+          if (left && right) {
+            return `${left} &mdash; *${right.replace(/^\*|\*$/g, '')}*`;
+          }
+          return left || right;
+        })
+        .join('  \n') +
+      '\n\n'
+    );
+  }
+
   const normalizedRows = parsedRows.map((r) => {
     while (r.length < maxCols) r.push('');
     return `| ${r.join(' | ')} |`;
@@ -288,6 +309,34 @@ export function parseLatexLevel3(tex: string): string {
   const { macros, strippedDoc } = extractLatexMacros(s);
   s = expandUserMacros(strippedDoc, macros);
 
+  // 3b. Discard Preamble if \begin{document} is present
+  // In LaTeX, everything before \begin{document} is preamble (packages, margins, layout).
+  // Discarding it avoids leaking layout lengths (e.g. -0.5in, 0in, same) into the readable preview.
+  const docStartMatch = /\\begin\{document\}/.exec(s);
+  if (docStartMatch) {
+    const preamble = s.slice(0, docStartMatch.index);
+    const afterDocStart = s.slice(docStartMatch.index + docStartMatch[0].length);
+    const docEndMatch = /\\end\{document\}/.exec(afterDocStart);
+    let body = docEndMatch ? afterDocStart.slice(0, docEndMatch.index) : afterDocStart;
+
+    // Extract title, author, date from preamble if defined
+    const titleM = /\\title\{([^}]*)\}/.exec(preamble);
+    const authorM = /\\author\{([^}]*)\}/.exec(preamble);
+    const dateM = /\\date\{([^}]*)\}/.exec(preamble);
+    if (titleM) {
+      const headerText = `# ${titleM[1]}\n${authorM ? `*${authorM[1]}*\n` : ''}${dateM ? `*${dateM[1]}*\n\n` : '\n'}`;
+      if (/\\maketitle/.test(body)) {
+        body = body.replace(/\\maketitle/g, headerText);
+      } else {
+        body = `${headerText}\n${body}`;
+      }
+    }
+    s = body;
+  }
+
+  // 4a. Clean up math-mode pipes ($|$) commonly used as text dividers in LaTeX resumes
+  s = s.replace(/\$\s*\|\s*\$/g, ' | ');
+
   // 4. Escape literal LaTeX symbols (e.g. \$, \&, \%, \_) so they don't trigger math or formatting
   s = s
     .replace(/\\&/g, '&amp;')
@@ -320,8 +369,8 @@ export function parseLatexLevel3(tex: string): string {
   // Inline math: $ ... $ (must not be empty, not spanning across newlines, not escaped)
   s = s.replace(/(?<!\\)\$(?!\$)([^$\n]+?)(?<!\\)\$/g, (_m, math) => protectMath(math, false));
 
-  // 6. Convert LaTeX Tables (\begin{tabular} ... \end{tabular}) into Markdown GFM tables with multicolumn support
-  s = s.replace(/\\begin\{tabular\}\{[^}]*\}([\s\S]*?)\\end\{tabular\}/g, (_m, tableBody) => {
+  // 6. Convert LaTeX Tables (\begin{tabular} ... \end{tabular}, including \begin{tabular*}) into Markdown
+  s = s.replace(/\\begin\{tabular\*?\}(?:\{[^}]*\})?(?:\[[^\]]*\])?\{[^}]*\}([\s\S]*?)\\end\{tabular\*?\}/g, (_m, tableBody) => {
     return parseLatexTabular(tableBody);
   });
 
@@ -359,7 +408,14 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\pagestyle\{[^}]*\}/g, '')
     .replace(/\\thispagestyle\{[^}]*\}/g, '')
     .replace(/\\pagenumbering\{[^}]*\}/g, '')
-    .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (_m, inner) => `\n\n${String(inner).trim()}\n\n`);
+    .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (_m, inner) => {
+      const cleanLines = String(inner)
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .join('  \n');
+      return `\n\n${cleanLines}\n\n`;
+    });
 
   // 9. Academic Environments (abstract, quote, theorem, proof)
   s = s.replace(/\\begin\{abstract\}([\s\S]*?)\\end\{abstract\}/g, (_m, abs) => {
@@ -386,9 +442,12 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\end\{enumerate\}/g, '')
     .replace(/\\item\s*/g, '- ');
 
-  // 10b. Spacing commands carry no readable text — drop them WITH their
-  // arguments, otherwise lengths like "{4pt}" leak into the preview as "4pt".
-  s = s.replace(/\\(?:vspace|hspace|smallskip|medskip|bigskip|noindent|indent)\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?/g, '');
+  // 10b. Spacing and length commands carry no readable text
+  s = s
+    .replace(/\\(?:vspace|hspace|smallskip|medskip|bigskip|noindent|indent)\*?(?:\[[^\]]*\])?(?:\{[^}]*\})?/g, '')
+    .replace(/\\addtolength\{[^}]*\}\{[^}]*\}/g, '')
+    .replace(/\\setlength\{[^}]*\}\{[^}]*\}/g, '')
+    .replace(/\\urlstyle\{[^}]*\}/g, '');
 
   // 11. Typography, styles, links, and citations with balanced brace handling
   s = s
@@ -396,9 +455,10 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\textit\{([^}]*)\}/g, '*$1*')
     .replace(/\\emph\{([^}]*)\}/g, '*$1*')
     .replace(/\\texttt\{([^}]*)\}/g, '`$1`')
-    .replace(/\\underline\{([^}]*)\}/g, '<u>$1</u>')
-    .replace(/\\textsc\{([^}]*)\}/g, '<span style="font-variant:small-caps">$1</span>')
+    .replace(/\\href\{([^}]*)\}\{\\underline\{([^}]*)\}\}/g, '[$2]($1)')
     .replace(/\\href\{([^}]*)\}\{([^}]*)\}/g, '[$2]($1)')
+    .replace(/\\underline\{([^}]*)\}/g, '$1')
+    .replace(/\\textsc\{([^}]*)\}/g, '<span style="font-variant:small-caps">$1</span>')
     .replace(/\\url\{([^}]*)\}/g, '[$1]($1)')
     .replace(/\\cite\{([^}]*)\}/g, '[$1]')
     .replace(/\\citep\{([^}]*)\}/g, '($1)')
@@ -419,6 +479,14 @@ export function parseLatexLevel3(tex: string): string {
   s = s
     .replace(/\\[a-zA-Z]+(?:\*|\b)(?:\[[^\]]*\])?/g, '')
     .replace(/[{}]/g, '');
+
+  // 13b. Fix CommonMark bold delimiter space invalidation (e.g. "** Name**" -> "**Name**")
+  s = s
+    .replace(/\*\*([ \t]+)([^\*\n]+?)\*\*/g, '**$2**')
+    .replace(/\*\*([^\*\n]+?)([ \t]+)\*\*/g, '**$1**');
+
+  // Strip 2-8 space indentation from normal text lines so CommonMark does not turn them into code blocks
+  s = s.replace(/^[ ]{2,8}(?!\*|\-|\d+\.|#|>|`|\|)/gm, '');
 
   // 14. Restore Code Blocks, TikZ, and Escaped Symbols
   s = s.replace(/%%CODEBLOCK_(\d+)%%/g, (_m, idx) => codeBlocks[Number(idx)] || '');

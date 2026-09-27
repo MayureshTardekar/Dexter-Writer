@@ -178,5 +178,45 @@ Body text.
       // unbalanced → left untouched
       expect(stripLatexCommand('a\\hypersetup{colorlinks=true', 'hypersetup', 1)).toContain('\\hypersetup');
     });
+
+    it("parses Jake's resume without leaking preamble margins, lengths, or tabular* tags", () => {
+      const jakeTex = `
+\\documentclass[letterpaper,11pt]{article}
+\\addtolength{\\oddsidemargin}{-0.5in}
+\\addtolength{\\evensidemargin}{-0.5in}
+\\addtolength{\\textwidth}{1in}
+\\urlstyle{same}
+\\setlength{\\tabcolsep}{0in}
+
+\\newcommand{\\resumeSubheading}[4]{
+  \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+    \\textbf{#1} & #2 \\\\
+    \\textit{\\small#3} & \\textit{\\small #4} \\\\
+  \\end{tabular*}
+}
+
+\\begin{document}
+\\begin{center}
+    \\textbf{\\Huge \\scshape Mayuresh Tardekar} \\\\
+    \\small Mumbai, India $|$ +91-8828334158 $|$ \\href{mailto:test@test.com}{\\underline{test@test.com}}
+\\end{center}
+
+\\section{Education}
+\\resumeSubheading{Sardar Patel Institute of Technology}{Mumbai, India}{MCA}{2025 -- 2027}
+
+\\end{document}
+`;
+      const result = parseLatexLevel3(jakeTex);
+      expect(result).not.toContain('-0.5in');
+      expect(result).not.toContain('same');
+      expect(result).not.toContain('0in');
+      expect(result).not.toContain('tabular*');
+      expect(result).toContain('Mayuresh Tardekar');
+      expect(result).toContain('Mumbai, India');
+      expect(result).toContain('Sardar Patel Institute of Technology');
+      expect(result).toContain('2025 -- 2027');
+      expect(result).toContain('## Education');
+      expect(result).toContain('[test@test.com](mailto:test@test.com)');
+    });
   });
 });

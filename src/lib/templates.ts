@@ -90,6 +90,129 @@ AWS Solutions Architect Associate (2023)
 `,
   },
   {
+    id: 'resume-jake-tex',
+    label: "Resume — Jake's Template (LaTeX)",
+    mode: 'latex',
+    description: "Standard CS / Software Engineer resume based on Jake's Resume",
+    content: `%-------------------------
+% Resume in Latex - Jake's Template
+% License : MIT
+%------------------------
+
+\\documentclass[letterpaper,11pt]{article}
+
+\\usepackage{latexsym}
+\\usepackage[empty]{fullpage}
+\\usepackage{titlesec}
+\\usepackage{marvosym}
+\\usepackage[usenames,dvipsnames]{color}
+\\usepackage{verbatim}
+\\usepackage{enumitem}
+\\usepackage[hidelinks]{hyperref}
+\\usepackage{fancyhdr}
+\\usepackage[english]{babel}
+\\usepackage{tabularx}
+
+\\pagestyle{fancy}
+\\fancyhf{}
+\\fancyfoot{}
+\\renewcommand{\\headrulewidth}{0pt}
+\\renewcommand{\\footrulewidth}{0pt}
+
+% Adjust margins
+\\addtolength{\\oddsidemargin}{-0.5in}
+\\addtolength{\\evensidemargin}{-0.5in}
+\\addtolength{\\textwidth}{1in}
+\\addtolength{\\topmargin}{-.5in}
+\\addtolength{\\textheight}{1.0in}
+
+\\urlstyle{same}
+
+\\raggedbottom
+\\raggedright
+\\setlength{\\tabcolsep}{0in}
+
+% Sections formatting
+\\titleformat{\\section}{
+  \\vspace{-4pt}\\scshape\\raggedright\\large
+}{}{0em}{}[\\color{black}\\titlerule \\vspace{-5pt}]
+
+% Custom commands for Jake's Resume
+\\newcommand{\\resumeItem}[1]{
+  \\item\\small{
+    {#1 \\vspace{-2pt}}
+  }
+}
+
+\\newcommand{\\resumeSubheading}[4]{
+  \\vspace{-2pt}\\item
+    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+      \\textbf{#1} & #2 \\\\
+      \\textit{\\small#3} & \\textit{\\small #4} \\\\
+    \\end{tabular*}\\vspace{-7pt}
+}
+
+\\newcommand{\\resumeProjectHeading}[2]{
+    \\item
+    \\begin{tabular*}{0.97\\textwidth}{l@{\\extracolsep{\\fill}}r}
+      \\small#1 & #2 \\\\
+    \\end{tabular*}\\vspace{-7pt}
+}
+
+\\newcommand{\\resumeSubItem}[1]{\\resumeItem{#1}\\vspace{-4pt}}
+\\newcommand{\\resumeItemListStart}{\\begin{itemize}[leftmargin=0.15in, label={}]}
+\\newcommand{\\resumeItemListEnd}{\\end{itemize}\\vspace{-5pt}}
+
+\\begin{document}
+
+\\begin{center}
+    \\textbf{\\Huge \\scshape Mayuresh Tardekar} \\\\ \\vspace{3pt}
+    \\small Mumbai, India $|$ +91-8828334158 $|$ \\href{mailto:mayurtardekar1205@gmail.com}{\\underline{mayurtardekar1205@gmail.com}} \\\\
+    \\href{https://linkedin.com/in/mayuresh-tardekar}{\\underline{linkedin.com/in/mayuresh-tardekar}} $|$
+    \\href{https://github.com/mayuresh-tardekar}{\\underline{github.com/mayuresh-tardekar}}
+\\end{center}
+
+\\section{Education}
+  \\resumeItemListStart
+    \\resumeSubheading
+      {Sardar Patel Institute of Technology (SPIT)}{Mumbai, India}
+      {Master of Computer Applications (MCA)}{2025 -- 2027}
+    \\resumeSubheading
+      {Mumbai University}{Mumbai, India}
+      {Bachelor of Science in Information Technology (B.Sc. IT) -- CGPA: 7.77}{2021 -- 2024}
+  \\resumeItemListEnd
+
+\\section{Technical Skills}
+ \\begin{itemize}[leftmargin=0.15in, label={}]
+    \\small{\\item{
+     \\textbf{Languages}{: Java, Python, TypeScript, JavaScript, SQL, C++} \\\\
+     \\textbf{Frameworks \\& Libs}{: Spring Boot, React, Node.js, Express, FastAPI, Tailwind CSS} \\\\
+     \\textbf{Cloud \\& Databases}{: PostgreSQL, Redis, Supabase, Docker, Git, pgvector, Linux} \\\\
+     \\textbf{Core Concepts}{: Distributed Systems, REST APIs, RAG, Microservices, Data Structures}
+    }}
+ \\end{itemize}
+
+\\section{Projects}
+    \\resumeItemListStart
+      \\resumeProjectHeading
+          {\\textbf{ForgeAgent} $|$ \\emph{RAG, Supabase Edge Functions, PostgreSQL, pgvector}}{2026}
+          \\resumeItemListStart
+            \\resumeItem{Architected a multi-tenant AI chatbot platform enabling automated document ingestion and vector semantic search with p99 retrieval under 180ms.}
+            \\resumeItem{Implemented hybrid retrieval combining dense vector embeddings with full-text search, increasing context accuracy by 34\\%.}
+            \\resumeItem{Engineered an embeddable low-latency JavaScript widget with real-time streaming support over WebSockets.}
+          \\resumeItemListEnd
+      \\resumeProjectHeading
+          {\\textbf{ChainSight} $|$ \\emph{Spring Boot, PostgreSQL, Redis, Web3j, Docker}}{2026}
+          \\resumeItemListStart
+            \\resumeItem{Engineered a high-throughput blockchain analytics pipeline indexing 10,000+ events/sec into time-series PostgreSQL tables.}
+            \\resumeItem{Designed restart-safe asynchronous block ingestion using Redis queues, reducing event processing lag by 50\\%.}
+          \\resumeItemListEnd
+    \\resumeItemListEnd
+
+\\end{document}
+`,
+  },
+  {
     id: 'paper-tex',
     label: 'Research Paper (LaTeX)',
     mode: 'latex',
