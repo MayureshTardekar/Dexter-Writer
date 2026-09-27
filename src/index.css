@@ -107,6 +107,7 @@ body {
   50% { opacity: 0.75; box-shadow: 0 0 0 6px rgba(52, 211, 166, 0); }
 }
 @keyframes blink { 50% { opacity: 0; } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 .app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 button { font: inherit; color: inherit; }
@@ -324,7 +325,7 @@ kbd {
 }
 .voice-live .radar::after { animation: pulseRadar 1.4s ease-out infinite; background: transparent; border: 1.5px solid var(--danger); }
 
-/* ============ TOC / preview (academic paper styling) ============ */
+/* ============ TOC / preview — Overleaf-quality document viewer ============ */
 .toc-wrap { border-bottom: 1px solid var(--border); flex: 0 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .toc-head {
   display: flex; align-items: center; gap: 6px;
@@ -341,39 +342,264 @@ kbd {
 .toc-item:hover { background: var(--panel2); }
 .toc-item.l2 { padding-left: 18px; color: var(--muted); }
 .toc-item.l3 { padding-left: 30px; color: var(--muted); }
-.preview-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; }
+
+/* Preview scroll area — mimics Overleaf's grey document canvas */
+.preview-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 28px 18px 40px;
+  background: #2a2a2a;
+  background-image:
+    radial-gradient(ellipse at 0% 0%, rgba(99,102,241,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 100% 100%, rgba(139,92,246,0.04) 0%, transparent 60%);
+}
+[data-theme="light"] .preview-scroll { background: #c8c8c8; }
+
+/* Zoom scale wrapper */
+.preview-zoom-wrap {
+  transform-origin: top center;
+  transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The actual document page — looks like a real PDF page */
 .preview-doc {
-  max-width: 780px; margin: 0 auto;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  box-shadow: var(--border-hi), var(--shadow);
-  padding: 32px 36px; overflow-wrap: anywhere;
-  font-size: 14.5px;
+  max-width: 760px;
+  margin: 0 auto;
+  background: #ffffff;
+  color: #1a1a1a;
+  border-radius: 2px;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.15),
+    0 4px 12px rgba(0,0,0,0.25),
+    0 20px 60px rgba(0,0,0,0.4),
+    0 40px 100px rgba(0,0,0,0.2);
+  padding: 54px 68px 72px;
+  overflow-wrap: anywhere;
+  /* Computer Modern / LaTeX-style serif font */
+  font-family: "Georgia", "Times New Roman", "Palatino", serif;
+  font-size: 10.5pt;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  position: relative;
 }
-.preview-doc h1, .preview-doc h2, .preview-doc h3, .preview-doc h4 {
-  font-family: var(--display); font-weight: 700; line-height: 1.28;
-  margin: 1.15em 0 0.55em; letter-spacing: -0.01em;
+[data-theme="light"] .preview-doc {
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.12),
+    0 4px 12px rgba(0,0,0,0.15),
+    0 20px 50px rgba(0,0,0,0.2);
 }
-.preview-doc h1 { font-size: 1.75em; font-weight: 800; border-bottom: 1px solid var(--border); padding-bottom: 0.35em; }
-.preview-doc h2 { font-size: 1.4em; }
-.preview-doc h3 { font-size: 1.15em; }
-.preview-doc pre { background: var(--panel2); border: 1px solid var(--border-soft); padding: 12px 14px; border-radius: var(--radius); overflow-x: auto; font-size: 12.5px; }
-.preview-doc code { font-family: var(--mono); font-size: 0.88em; }
-.preview-doc table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; width: max-content; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
-.preview-doc thead { background: var(--accent-soft); print-color-adjust: exact; }
-.preview-doc tbody tr:nth-child(even) { background: var(--panel2); print-color-adjust: exact; }
-.preview-doc td, .preview-doc th { border-bottom: 1px solid var(--border-soft); padding: 7px 12px; white-space: nowrap; text-align: left; }
-.preview-doc th { font-family: var(--display); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; }
-.preview-doc tbody tr:last-child td { border-bottom: 0; }
+
+/* Heading hierarchy — LaTeX resume style */
+.preview-doc h1 {
+  font-family: "Georgia", serif;
+  font-size: 22pt;
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 4px;
+  letter-spacing: 0.02em;
+  color: #0a0a0a;
+  line-height: 1.15;
+}
+.preview-doc h2 {
+  font-family: "Georgia", serif;
+  font-size: 10.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin: 18px 0 4px;
+  padding-bottom: 3px;
+  border-bottom: 1.5px solid #1a1a1a;
+  color: #0a0a0a;
+  line-height: 1.2;
+}
+.preview-doc h3 {
+  font-family: "Georgia", serif;
+  font-size: 10.5pt;
+  font-weight: 700;
+  margin: 10px 0 1px;
+  color: #0a0a0a;
+}
+.preview-doc h4 {
+  font-size: 10pt;
+  font-weight: 600;
+  font-style: italic;
+  margin: 6px 0 1px;
+  color: #333;
+}
+
+/* Paragraphs & body text */
+.preview-doc p {
+  margin: 4px 0 6px;
+  text-align: left;
+  color: #1a1a1a;
+}
+
+/* Lists — resume bullet style */
+.preview-doc ul, .preview-doc ol {
+  margin: 3px 0 6px 18px;
+  padding: 0;
+  color: #1a1a1a;
+}
+.preview-doc li {
+  margin: 2px 0;
+  line-height: 1.55;
+}
+.preview-doc li::marker { color: #444; }
+
+/* Code / verbatim */
+.preview-doc pre {
+  background: #f5f5f5;
+  border: 1px solid #d0d0d0;
+  border-left: 3px solid #6366f1;
+  padding: 10px 14px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 9pt;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  color: #1a1a1a;
+  line-height: 1.5;
+  margin: 10px 0;
+}
+.preview-doc code {
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.88em;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: #c7254e;
+}
+pre.preview-doc code { background: none; border: none; padding: 0; color: inherit; }
+
+/* Tables */
+.preview-doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 10pt;
+  color: #1a1a1a;
+}
+.preview-doc thead { background: #f0f0f0; }
+.preview-doc td, .preview-doc th {
+  border: 1px solid #c0c0c0;
+  padding: 5px 10px;
+  text-align: left;
+}
+.preview-doc th {
+  font-weight: 700;
+  font-size: 9.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #e8e8e8;
+}
+.preview-doc tbody tr:nth-child(even) { background: #fafafa; }
+
+/* Blockquote — abstract style */
 .preview-doc blockquote {
-  border-left: 3px solid transparent;
-  border-image: linear-gradient(180deg, var(--accent), #ec4899) 1;
-  margin: 1em 0; padding: 8px 0 8px 16px; color: var(--muted);
-  background: var(--accent-soft); border-radius: 0 var(--radius) var(--radius) 0;
+  border-left: 3px solid #6366f1;
+  margin: 12px 0;
+  padding: 8px 0 8px 16px;
+  color: #444;
+  background: #f7f7fb;
+  border-radius: 0 4px 4px 0;
+  font-style: italic;
 }
-.preview-doc img { max-width: 100%; }
-.preview-doc a { color: var(--accent); }
-.preview-doc .katex-display { padding: 10px 0; overflow-x: auto; }
-.preview-empty { text-align: center; color: var(--muted-dim); padding: 40px 16px; font-size: 13px; }
+
+/* Links */
+.preview-doc a {
+  color: #1a56b0;
+  text-decoration: none;
+}
+.preview-doc a:hover { text-decoration: underline; }
+
+/* Horizontal rules — section dividers */
+.preview-doc hr {
+  border: 0;
+  border-top: 1px solid #bbb;
+  margin: 16px 0;
+}
+
+/* KaTeX math */
+.preview-doc .katex-display {
+  padding: 10px 0;
+  overflow-x: auto;
+  color: #1a1a1a;
+}
+.preview-doc .katex { font-size: 1em; }
+
+/* Contact / center text (resume header) */
+.preview-doc p:has(> a):first-of-type,
+.preview-doc .resume-contact {
+  text-align: center;
+  font-size: 9.5pt;
+  color: #333;
+  margin: 2px 0 8px;
+  line-height: 1.8;
+}
+
+/* Resume subheading rows (Institution — Date) */
+.preview-doc em:only-child { color: #555; }
+
+/* Empty state */
+.preview-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: rgba(255,255,255,0.3);
+  font-family: var(--font);
+  font-size: 13px;
+}
+[data-theme="light"] .preview-empty { color: rgba(0,0,0,0.3); }
+
+/* Preview toolbar — zoom controls */
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  background: var(--panel);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.preview-zoom-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  min-width: 36px;
+  text-align: center;
+  color: var(--text);
+}
+.preview-compile-btn {
+  margin-left: auto;
+}
+
+/* PDF iframe overlay */
+.preview-pdf-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #2a2a2a;
+}
+[data-theme="light"] .preview-pdf-wrap { background: #c8c8c8; }
+.preview-pdf-frame {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  min-height: 0;
+}
+.preview-pdf-status {
+  padding: 6px 12px;
+  font-size: 11.5px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.preview-pdf-status.compiling { color: var(--accent2); }
+.preview-pdf-status.error { color: var(--danger); }
 
 /* ============ statusbar ============ */
 .statusbar {
@@ -628,7 +854,8 @@ kbd {
   .rail-left { left: 0; }
   .rail-right { right: 0; }
   .rail:hover { background: var(--accent-soft); }
-  .preview-doc { padding: 20px; }
+  .preview-doc { padding: 24px 28px; }
+  .preview-scroll { padding: 16px 8px 32px; }
   .modal.xl .diff-body { flex-direction: column; }
   .diff-editor-wrap, .hunk-list { max-height: none; height: 40vh; }
   .statusbar .hide-mobile { display: none; }
@@ -648,6 +875,6 @@ kbd {
   .toolbar, .pane.left, .pane.center, .statusbar, .toc, .toc-wrap, .pane-head, .divider, .toasts, .rail { display: none !important; }
   .panes { display: block; }
   .pane.right { display: flex !important; width: 100% !important; }
-  .preview-scroll { overflow: visible; }
-  .preview-doc { border: 0; max-width: none; box-shadow: none; }
+  .preview-scroll { overflow: visible; padding: 0; }
+  .preview-doc { border: 0; max-width: none; box-shadow: none; border-radius: 0; }
 }
