@@ -106,12 +106,25 @@ export function expandUserMacros(text: string, macros: Map<string, LatexMacro>, 
       const callPrefix = `\\${name}`;
       let searchIdx = 0;
       while ((searchIdx = result.indexOf(callPrefix, searchIdx)) !== null && searchIdx !== -1) {
+        // Never match a LONGER macro name that merely starts with this one
+        // (e.g. \resumeItem must not match inside \resumeItemListStart).
+        const afterName = result[searchIdx + callPrefix.length] ?? '';
+        if (/[a-zA-Z]/.test(afterName)) {
+          searchIdx += callPrefix.length;
+          continue;
+        }
         let cursor = searchIdx + callPrefix.length;
         while (cursor < result.length && /\s/.test(result[cursor])) cursor++;
         const args: string[] = [];
         let valid = true;
         for (let p = 0; p < macro.paramCount; p++) {
           while (cursor < result.length && /\s/.test(result[cursor])) cursor++;
+          // The argument's opening brace must be adjacent — never scan ahead,
+          // or an unrelated later group (e.g. {document}) gets swallowed.
+          if (result[cursor] !== '{') {
+            valid = false;
+            break;
+          }
           const argBrace = extractBalancedBraces(result, cursor);
           if (argBrace) { args.push(argBrace.content); cursor = argBrace.endIndex; }
           else { valid = false; break; }
@@ -126,6 +139,67 @@ export function expandUserMacros(text: string, macros: Map<string, LatexMacro>, 
     }
   }
   return result;
+}
+
+/**
+ * Finds tabular/tabular* environments and converts each body with
+ * parseLatexTabular. The preamble (optional {width}, [pos], and the column
+ * spec which may nest braces like @{...}) is consumed with balanced parsing.
+ * Malformed environments are left untouched for generic cleanup downstream.
+ */
+export function convertTabularEnvs(s: string): string {
+  const openRe = /\\begin\{tabular\*?\}/g;
+  let out = '';
+  let idx = 0;
+  let m: RegExpExecArray | null;
+  const skipPast = (pos: number): void => {
+    openRe.lastIndex = pos;
+  };
+  while ((m = openRe.exec(s)) !== null) {
+    const starred = m[0].includes('*');
+    const closeTag = starred ? '\\end{tabular*}' : '\\end{tabular}';
+    let pos = m.index + m[0].length;
+    let valid = true;
+    // Preamble groups: optional {width}, optional [pos], required {colspec}.
+    // A lone {group} is the colspec itself (NOT a width) — this mirrors the
+    // old regex's backtracking. Width only counts when another group follows.
+    const takeGroup = (): boolean => {
+      if (s[pos] !== '{') return false;
+      const b = extractBalancedBraces(s, pos);
+      if (!b) return false;
+      pos = b.endIndex;
+      return true;
+    };
+    const takeOpt = (): void => {
+      const opt = /^\s*\[[^\]]*\]/.exec(s.slice(pos));
+      if (opt) pos += opt[0].length;
+    };
+    if (s[pos] === '{') {
+      if (!takeGroup()) valid = false;
+      else {
+        const afterFirst = pos;
+        takeOpt();
+        if (s[pos] === '{') {
+          if (!takeGroup()) valid = false;
+        } else {
+          pos = afterFirst; // single group was the colspec
+        }
+      }
+    } else {
+      takeOpt();
+      if (!takeGroup()) valid = false;
+    }
+    const closeIdx = valid ? s.indexOf(closeTag, pos) : -1;
+    if (!valid || closeIdx === -1) {
+      skipPast(m.index + m[0].length);
+      continue;
+    }
+    const body = s.slice(pos, closeIdx);
+    out += s.slice(idx, m.index) + parseLatexTabular(body);
+    idx = closeIdx + closeTag.length;
+    openRe.lastIndex = idx;
+  }
+  return out + s.slice(idx);
 }
 
 /**
@@ -165,7 +239,7 @@ export function parseLatexTabular(tabularBody: string): string {
   }
   const normalizedRows = parsedRows.map((r) => { while (r.length < maxCols) r.push(''); return `| ${r.join(' | ')} |`; });
   const header = normalizedRows[0];
-  const separator = `| ${Array(maxCols).fill('---').join(' | ')} |`;
+  const separator = `| ${Array(maxCols).fill('%%TABLE_SEP%%').join(' | ')} |`;
   const body = normalizedRows.slice(1);
   return `\n\n${header}\n${separator}\n${body.join('\n')}\n\n`;
 }
@@ -230,7 +304,7 @@ function inlineLatexToHtml(text: string): string {
  * Parses Jake's Resume \resumeSubheading{name}{location}{role}{dates}
  * and emits an HTML div with two-column layout (name|location, role|dates).
  */
-function parseResumeSubheading(src: string): string {
+export function parseResumeSubheading(src: string): string {
   let result = src;
   // Match \resumeSubheading and consume 4 brace-balanced args
   const re = /\\resumeSubheading\b/g;
@@ -242,6 +316,7 @@ function parseResumeSubheading(src: string): string {
     let ok = true;
     for (let i = 0; i < 4; i++) {
       while (pos < result.length && /[\s\n]/.test(result[pos])) pos++;
+      if (result[pos] !== '{') { ok = false; break; }
       const b = extractBalancedBraces(result, pos);
       if (!b) { ok = false; break; }
       args.push(b.content);
@@ -265,7 +340,7 @@ function parseResumeSubheading(src: string): string {
  * Parses \resumeProjectHeading{title}{year} and emits project heading HTML.
  * Title is typically: \textbf{Name} $|$ \emph{tech1, tech2}
  */
-function parseResumeProjectHeading(src: string): string {
+export function parseResumeProjectHeading(src: string): string {
   let result = src;
   const re = /\\resumeProjectHeading\b/g;
   let m: RegExpExecArray | null;
@@ -276,6 +351,7 @@ function parseResumeProjectHeading(src: string): string {
     let ok = true;
     for (let i = 0; i < 2; i++) {
       while (pos < result.length && /[\s\n]/.test(result[pos])) pos++;
+      if (result[pos] !== '{') { ok = false; break; }
       const b = extractBalancedBraces(result, pos);
       if (!b) { ok = false; break; }
       args.push(b.content);
@@ -331,11 +407,13 @@ export function parseLatexLevel3(tex: string): string {
   });
 
   // 3. Extract and Expand User Macros — BUT skip known Jake's resume commands
-  //    so they don't get corrupted by generic macro expansion
+  //    so they don't get corrupted by generic macro expansion. The dedicated
+  //    parsers below handle their calls with proper two-column HTML instead.
   const JAKES_COMMANDS = new Set([
     'resumeItem', 'resumeSubheading', 'resumeProjectHeading',
     'resumeSubItem', 'resumeItemListStart', 'resumeItemListEnd',
     'resumeSubheadingListStart', 'resumeSubheadingListEnd',
+    'resumeSubHeadingListStart', 'resumeSubHeadingListEnd',
   ]);
   const { macros, strippedDoc } = extractLatexMacros(s);
   // Remove Jake's commands from the extracted macros so we handle them ourselves
@@ -378,18 +456,21 @@ export function parseLatexLevel3(tex: string): string {
   s = s.replace(/(?<!\\)\$(?!\$)([^$\n]+?)(?<!\\)\$/g, (_m, math) => protectMath(math, false));
   s = s.replace(/%%PIPEDIV%%/g, ' | ');
 
-  // 5. Jake's Resume Template — handle list wrappers
+  // 4b. Jake's Resume Template — dedicated handlers BEFORE generic cleanup.
+  // Template-detected: each block only transforms text when its commands are
+  // actually present, and emits two-column HTML matching Overleaf's layout
+  // (instead of flattening tabular* rows into "r Name **" garbage).
   // \resumeItemListStart / \resumeItemListEnd  →  open/close a <ul> via markers
   s = s.replace(/\\resumeItemListStart\b/g, '\n%%RESUME_LIST_START%%\n');
   s = s.replace(/\\resumeItemListEnd\b/g, '\n%%RESUME_LIST_END%%\n');
-  s = s.replace(/\\resumeSubheadingListStart\b/g, '\n%%RESUME_SUBH_START%%\n');
-  s = s.replace(/\\resumeSubheadingListEnd\b/g, '\n%%RESUME_SUBH_END%%\n');
+  s = s.replace(/\\resumeSub[Hh]eadingListStart\b/g, '\n%%RESUME_SUBH_START%%\n');
+  s = s.replace(/\\resumeSub[Hh]eadingListEnd\b/g, '\n%%RESUME_SUBH_END%%\n');
 
-  // 6. Parse \resumeSubheading and \resumeProjectHeading BEFORE generic cleanup
+  // Parse \resumeSubheading and \resumeProjectHeading BEFORE generic cleanup
   s = parseResumeSubheading(s);
   s = parseResumeProjectHeading(s);
 
-  // 7. \resumeItem{text} → proper bullet with resume-item class
+  // \resumeItem{text} → proper bullet with resume-item class
   {
     let result = s;
     const re = /\\resumeItem\b/g;
@@ -398,6 +479,7 @@ export function parseLatexLevel3(tex: string): string {
     while ((m = re.exec(result)) !== null) {
       let pos = m.index + m[0].length;
       while (pos < result.length && /[\s\n]/.test(result[pos])) pos++;
+      if (result[pos] !== '{') continue;
       const b = extractBalancedBraces(result, pos);
       if (b) {
         const content = inlineLatexToHtml(b.content);
@@ -411,7 +493,7 @@ export function parseLatexLevel3(tex: string): string {
     s = result;
   }
 
-  // 8. \resumeSubItem{text} → same as resumeItem but indented
+  // \resumeSubItem{text} → same as resumeItem but indented
   {
     let result = s;
     const re = /\\resumeSubItem\b/g;
@@ -420,6 +502,7 @@ export function parseLatexLevel3(tex: string): string {
     while ((m = re.exec(result)) !== null) {
       let pos = m.index + m[0].length;
       while (pos < result.length && /[\s\n]/.test(result[pos])) pos++;
+      if (result[pos] !== '{') continue;
       const b = extractBalancedBraces(result, pos);
       if (b) {
         const content = inlineLatexToHtml(b.content);
@@ -433,15 +516,18 @@ export function parseLatexLevel3(tex: string): string {
     s = result;
   }
 
-  // 9. Section headings — \section{...} with scshape styling (small caps + rule)
-  //    In Jake's template these use \scshape, we'll add a CSS class
+  // 5. Section headings — emit h2 with resume-section class for small-caps + underline rule
+  //    The .resume-section CSS (already defined) gives scshape + border-bottom matching Overleaf.
   s = s.replace(/\\section\*?\{([^}]*)\}/g, (_m, title) => {
     const clean = inlineLatexToHtml(title);
     return `\n<h2 class="resume-section">${clean}</h2>\n`;
   });
 
-  // 10. Convert LaTeX Tables
-  s = s.replace(/\\begin\{tabular\*?\}(?:\{[^}]*\})?(?:\[[^\]]*\])?\{[^}]*\}([\s\S]*?)\\end\{tabular\*?\}/g, (_m, tableBody) => parseLatexTabular(tableBody));
+  // 6. Convert LaTeX Tables (including 2-column resume subheadings).
+  // The preamble is consumed with balanced-brace parsing because column
+  // specs nest (e.g. {l@{\extracolsep{\fill}}r}) — a naive [^}]* would stop
+  // at the first inner brace and leak fragments like "}r}" as "r " text.
+  s = convertTabularEnvs(s);
 
   // 11. TikZ fallback
   const tikzBlocks: string[] = [];
@@ -483,16 +569,23 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\raggedright\b/g, '')
     .replace(/\\fancyhf\{[^}]*\}/g, '')
     .replace(/\\fancyfoot\{[^}]*\}/g, '')
+    // Generic LaTeX spacing & font sizing commands
+    .replace(/\\(?:vspace|hspace)\*?\{[^}]*\}/g, '')
+    .replace(/\\(?:Huge|huge|LARGE|Large|large|normalsize|small|footnotesize|tiny|scshape|normalfont|bfseries|itshape)\b/g, '')
     .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (_m, inner) => {
-      // Detect resume header: first line usually has \textbf{\Huge \scshape Name}
-      const nameMatch = /\\textbf\s*\{(?:\\Huge\s*)?(?:\\scshape\s*)?([^}]+)\}/.exec(inner);
+      // Detect resume name: \textbf{\Huge \scshape Name} or \textbf{\Huge Name}
+      const nameMatch = /\\textbf\s*\{(?:\\(?:Huge|LARGE|Large)\s+)?(?:\\scshape\s+)?([^\\{}][^{}]*)\}/.exec(inner);
       const name = nameMatch ? inlineLatexToHtml(nameMatch[1]) : null;
-      // Clean all lines — apply inline transforms
-      const lines = String(inner).split('\\\\').map((l) => inlineLatexToHtml(l)).filter((l) => l.trim().length > 0);
-      // If we found a name, make it the heading, rest are contact lines
-      if (name) {
-        const contactLines = lines.slice(1).filter((l) => l.trim().length > 0);
-        const contactHtml = contactLines.map((l) => `<p>${l.trim()}</p>`).join('\n');
+      // Split on LaTeX line-breaks \\ and clean each line
+      const lines = String(inner)
+        .replace(/\\\\(?:\[[^\]]*\])?/g, '\n')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      if (name && lines.length > 0) {
+        // First line is the name → h1; remaining lines are contact info
+        const contactLines = lines.slice(1).map((l) => inlineLatexToHtml(l)).filter((l) => l.trim().length > 0);
+        const contactHtml = contactLines.map((l) => `<p>${l}</p>`).join('\n');
         return `\n\n<div class="resume-center">\n<h1>${name}</h1>\n${contactHtml}\n</div>\n\n`;
       }
       const cleanLines = lines.join('  \n');
@@ -547,8 +640,8 @@ export function parseLatexLevel3(tex: string): string {
   s = s.replace(/\\begin\{figure\}[\s\S]*?\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}[\s\S]*?(?:\\caption\{([^}]*)\})?[\s\S]*?\\end\{figure\}/g,
     (_m, path, caption) => `\n\n![${caption || 'Figure'}](${path})\n*${caption || ''}*\n\n`);
 
-  // 19. Dashes
-  s = s.replace(/---/g, '—').replace(/--/g, '–');
+  // 19. Dashes (preserve Markdown table separators | --- |)
+  s = s.replace(/(?<!\|)\s*---\s*(?!\|)/g, ' — ');
 
   // 20. Escape literal LaTeX symbols
   s = s
@@ -557,6 +650,16 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\#/g, '#')
     .replace(/\\_/g, '_')
     .replace(/\\\$/g, '%%DOLLAR%%');
+
+  // 20b. LaTeX control spaces and fontawesome icon commands.
+  // A trailing control space (e.g. "\faPhone\ ") otherwise survives generic
+  // cleanup as a stray backslash in the preview ("\ +91...", "\LinkedIn").
+  // \/ is dropped (italic correction has no readable equivalent); \-/ kept
+  // for generic cleanup since it must not inject spaces mid-word.
+  s = s
+    .replace(/\\\//g, '')
+    .replace(/\\[ ,;:]/g, ' ')
+    .replace(/\\fa[A-Z][A-Za-z]*\s*/g, '');
 
   // 21. Generic cleanup of remaining unrecognized single macros
   s = s
@@ -581,6 +684,12 @@ export function parseLatexLevel3(tex: string): string {
   s = s.replace(/%%CODEBLOCK_(\d+)%%/g, (_m, idx) => codeBlocks[Number(idx)] || '');
   s = s.replace(/%%TIKZBLOCK_(\d+)%%/g, (_m, idx) => tikzBlocks[Number(idx)] || '');
   s = s.replace(/%%DOLLAR%%/g, '$');
+  s = s.replace(/%%TABLE_SEP%%/g, '---');
+  // Collapse accidental quadruple-bold from double-wrapped formatting
+  // (e.g. multicol ** + textbf ** → ****x****). Valid ***bold-italic*** and
+  // lone *** rules are left untouched.
+  s = s.replace(/\*{4,}([^*]+?)\*{4,}/g, '**$1**');
+  s = s.replace(/^\*{4,}\s*$/gm, '***');
   s = s.replace(/%%MATHBLOCK_(\d+)%%/g, (_m, idx) => mathBlocks[Number(idx)] || '');
 
   return s.replace(/\n{3,}/g, '\n\n').trim();
