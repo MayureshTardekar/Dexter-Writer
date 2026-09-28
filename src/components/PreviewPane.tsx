@@ -52,6 +52,20 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
 
   return (
     <div className="preview-toolbar">
+      <button
+        className={`btn xs btn-recompile ${compilingPdf ? 'compiling' : ''}`}
+        onClick={() => {
+          if (onCompilePdf) onCompilePdf();
+        }}
+        disabled={compilingPdf}
+        title="Recompile document (Ctrl+Enter)"
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        <span>{compilingPdf ? 'Compiling…' : 'Recompile'}</span>
+      </button>
+      <span className="tb-sep" style={{ margin: "0 6px", height: "16px" }} />
       <button className="btn xs ghost icon-btn" onClick={() => stepZoom(-1)} title="Zoom out" aria-label="Zoom out">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/>
@@ -66,6 +80,7 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
       <button className="btn xs ghost" onClick={() => onZoom(1.0)} title="Reset zoom" aria-label="Reset zoom" style={{ padding: "0 6px", fontSize: 10 }}>
         1:1
       </button>
+      <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--muted)", marginLeft: 6 }}>1 / 1</span>
       {mode === "latex" && (
         <span className="preview-compile-btn" style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {pdfReady && (
@@ -77,9 +92,6 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
               {pdfMode ? " Rich Preview" : " PDF View"}
             </button>
           )}
-          <button className="btn xs ghost" onClick={onCompilePdf} disabled={compilingPdf} title="Compile with latex.js (browser)">
-            {compilingPdf ? "Compiling..." : "Compile PDF"}
-          </button>
         </span>
       )}
     </div>
@@ -87,11 +99,14 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
 }
 
 // Markdown / LaTeX rich preview
-function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, onSourceJump, zoom = 1.0 }: {
-  content: string; theme?: "dark" | "light"; sourceMap?: boolean; allowHtml?: boolean; onSourceJump?: (info: SourceJump) => void; zoom?: number;
+function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, articleRef, onSourceJump, zoom = 1.0 }: {
+  content: string; theme?: "dark" | "light"; sourceMap?: boolean; allowHtml?: boolean;
+  articleRef?: React.RefCallback<HTMLElement>;
+  onSourceJump?: (info: SourceJump) => void; zoom?: number;
 }) {
   const rehypePlugins = useMemo(() => {
-    const plugins: unknown[] = [rehypeKatex];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plugins: any[] = [rehypeKatex];
     if (allowHtml) plugins.unshift(rehypeRaw);
     if (sourceMap) plugins.push(rehypeSourceLine);
     return plugins;
@@ -110,7 +125,7 @@ function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml 
   return (
     <div className="preview-scroll" onDoubleClick={(e) => handlePreviewDblClick(e, sourceMap, onSourceJump)} title="Double-click to jump to source">
       <div className="preview-zoom-wrap" style={{ transform: `scale(${zoom})` }}>
-        <article className="preview-doc">
+        <article className="preview-doc" ref={articleRef}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={rehypePlugins}
@@ -197,85 +212,95 @@ function TypstPreview({ content, onSourceJump, zoom = 1.0 }: { content: string; 
   );
 }
 
-// PDF compilation via latex.js
-type PdfState = { status: "idle" } | { status: "compiling" } | { status: "ready"; url: string } | { status: "error"; message: string };
+// PDF export via Browser Print API.
+// latex.js cannot handle Jake's template packages (fontawesome5, fancyhdr,
+// titlesec, fullpage, tabularx, etc.) — it crashes with 'setErrorFn' errors.
+// Instead we capture the live rendered preview DOM, apply all its styles,
+// and open a dedicated print window so the user can Save as PDF (Ctrl+P).
+function printPreviewAsPdf(previewDocEl: HTMLElement | null): void {
+  if (!previewDocEl) {
+    alert('Preview is empty — type some LaTeX first.');
+    return;
+  }
 
-async function compileWithLatexJs(source: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const iframe = document.createElement("iframe");
-    iframe.style.cssText = "position:fixed;left:-99999px;top:-99999px;width:1px;height:1px;opacity:0;pointer-events:none;border:0;";
-    document.body.appendChild(iframe);
-
-    const cleanup = () => { try { document.body.removeChild(iframe); } catch { /* ignore */ } };
-    const timeoutHandle = setTimeout(() => {
-      window.removeEventListener("message", handler);
-      cleanup();
-      reject(new Error("Compilation timed out (30s). The latex.js CDN may be unavailable."));
-    }, 30_000);
-
-    const handler = (ev: MessageEvent) => {
-      if (!ev.data || ev.data.type !== "__latexjs_done__") return;
-      window.removeEventListener("message", handler);
-      clearTimeout(timeoutHandle);
-      cleanup();
-      const res = ev.data as { type: string; ok: boolean; html?: string; err?: string };
-      if (res.ok && res.html) {
-        const blob = new Blob([res.html], { type: "text/html" });
-        resolve(URL.createObjectURL(blob));
-      } else {
-        reject(new Error(res.err ?? "Unknown latex.js error"));
-      }
-    };
-    window.addEventListener("message", handler);
-
-    const escapedSource = JSON.stringify(source);
-    iframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<script>window.onerror=function(m){window.parent.postMessage({type:"__latexjs_done__",ok:false,err:String(m)},"*");}<\/script>
-</head><body>
-<script type="module">
-try {
-  const mod = await import("https://cdn.jsdelivr.net/npm/latex.js@0.12.4/dist/latex.mjs");
-  const src = ${escapedSource};
-  const generator = mod.parse(src,{});
-  const frag = generator.domFragment ? generator.domFragment() : generator.document;
-  const ser = new XMLSerializer();
-  let body="";
-  if(frag&&frag.children){for(const ch of frag.children)body+=ser.serializeToString(ch);}
-  else{body=ser.serializeToString(frag);}
-  const style="body{font-family:Georgia,serif;font-size:11pt;line-height:1.65;max-width:720px;margin:0 auto;padding:48px 60px 72px;background:#fff;color:#1a1a1a;}h1{font-size:20pt;text-align:center;margin:0 0 4px;}h2{font-size:11pt;text-transform:uppercase;letter-spacing:.1em;border-bottom:1.5px solid #111;padding-bottom:2px;margin:18px 0 5px;}h3{font-size:11pt;margin:8px 0 2px;}ul{margin:3px 0 6px 18px;}li{margin:2px 0;}a{color:#1a56b0;text-decoration:none;}p{margin:4px 0 6px;}";
-  const html="<!DOCTYPE html><html><head><meta charset=utf-8><style>"+style+"</style></head><body>"+body+"</body></html>";
-  window.parent.postMessage({type:"__latexjs_done__",ok:true,html},"*");
-} catch(e){
-  window.parent.postMessage({type:"__latexjs_done__",ok:false,err:String(e.message||e)},"*");
-}
-<\/script></body></html>`;
+  // Collect all stylesheets from the current document
+  const styleLinks: string[] = [];
+  const inlineStyles: string[] = [];
+  document.querySelectorAll('link[rel="stylesheet"]').forEach((el) => {
+    const href = (el as HTMLLinkElement).href;
+    if (href) styleLinks.push(`<link rel="stylesheet" href="${href}">`);
   });
+  document.querySelectorAll('style').forEach((el) => {
+    inlineStyles.push(`<style>${el.textContent}</style>`);
+  });
+
+  // Clone the preview article element
+  const clone = previewDocEl.cloneNode(true) as HTMLElement;
+
+  const printWindow = window.open('', '_blank', 'width=900,height=700');
+  if (!printWindow) {
+    alert('Pop-up blocked — please allow pop-ups for this site to export PDF.');
+    return;
+  }
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Resume — Export PDF</title>
+  ${styleLinks.join('\n')}
+  ${inlineStyles.join('\n')}
+  <style>
+    @page { size: A4; margin: 0; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #fff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    /* Override dark-mode canvas; the cloned article already has white bg */
+    body { background: #fff !important; }
+    .preview-doc {
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      margin: 0 auto !important;
+      padding: 28px 48px 36px !important;
+      max-width: 780px !important;
+      min-height: 100vh;
+      background: #fff !important;
+    }
+  </style>
+</head>
+<body>
+  ${clone.outerHTML}
+  <script>
+    window.onload = function() { setTimeout(function() { window.print(); }, 400); };
+  <\/script>
+</body>
+</html>`);
+  printWindow.document.close();
 }
 
 // Root export
-export default function PreviewPane({ content, mode, theme, onSourceJump }: {
-  content: string; mode: DocMode; theme?: "dark" | "light"; onSourceJump?: (info: SourceJump) => void;
+export default function PreviewPane({ content, mode, theme, onSourceJump, compileTrigger }: {
+  content: string; mode: DocMode; theme?: "dark" | "light"; onSourceJump?: (info: SourceJump) => void; compileTrigger?: number;
 }) {
   const [zoom, setZoom] = useState(1.0);
-  const [pdfState, setPdfState] = useState<PdfState>({ status: "idle" });
-  const [pdfMode, setPdfMode] = useState(false);
-  const blobUrlRef = useRef<string | null>(null);
 
-  useEffect(() => { return () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current); }; }, []);
+  // Ref to the rendered <article class="preview-doc"> element for print capture
+  const previewDocRef = useRef<HTMLElement | null>(null);
 
-  const compilePdf = useCallback(async () => {
-    setPdfState({ status: "compiling" });
-    setPdfMode(false);
-    try {
-      const url = await compileWithLatexJs(content);
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-      blobUrlRef.current = url;
-      setPdfState({ status: "ready", url });
-      setPdfMode(true);
-    } catch (e) {
-      setPdfState({ status: "error", message: e instanceof Error ? e.message : String(e) });
+  const compilePdf = useCallback(() => {
+    printPreviewAsPdf(previewDocRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (compileTrigger && compileTrigger > 0) {
+      if (mode === "latex") {
+        void compilePdf();
+      }
     }
-  }, [content]);
+  }, [compileTrigger, mode, compilePdf]);
 
   const md = useMemo(() => {
     if (mode === "latex") return latexToReadable(content);
@@ -284,30 +309,17 @@ export default function PreviewPane({ content, mode, theme, onSourceJump }: {
   }, [content, mode]);
 
   const isLatex = mode === "latex";
-  const compilingPdf = pdfState.status === "compiling";
-  const pdfReady = pdfState.status === "ready";
-  const pdfUrl = pdfReady ? (pdfState as { status: "ready"; url: string }).url : null;
-  const pdfError = pdfState.status === "error" ? (pdfState as { status: "error"; message: string }).message : null;
+  const compilingPdf = false;   // print is synchronous — no loading state needed
+  const pdfReady = false;
+  const pdfError: string | null = null;
 
   const zoomBar = (
     <ZoomBar zoom={zoom} onZoom={setZoom} mode={mode}
       onCompilePdf={isLatex ? compilePdf : undefined}
-      compilingPdf={compilingPdf} pdfReady={pdfReady} pdfMode={pdfMode}
-      onTogglePdf={() => setPdfMode((v) => !v)}
+      compilingPdf={compilingPdf} pdfReady={pdfReady} pdfMode={false}
+      onTogglePdf={undefined}
     />
   );
-
-  if (isLatex && pdfMode && pdfUrl) {
-    return (
-      <>
-        {zoomBar}
-        <div className="preview-pdf-wrap">
-          <iframe className="preview-pdf-frame" src={pdfUrl} title="Compiled LaTeX output" sandbox="allow-scripts allow-same-origin" />
-          <div className="preview-pdf-status">Rendered via latex.js in browser</div>
-        </div>
-      </>
-    );
-  }
 
   if (mode === "typst") {
     return (<>{zoomBar}<TypstPreview content={content} onSourceJump={onSourceJump} zoom={zoom} /></>);
@@ -317,9 +329,15 @@ export default function PreviewPane({ content, mode, theme, onSourceJump }: {
   return (
     <>
       {zoomBar}
-      {compilingPdf && <div className="preview-pdf-status compiling">Compiling LaTeX...</div>}
-      {pdfError && <div className="preview-pdf-status error">Compilation failed: {pdfError}</div>}
-      <MarkdownPreview content={md} theme={theme} sourceMap={exact} allowHtml={isLatex} onSourceJump={onSourceJump} zoom={zoom} />
+      <MarkdownPreview
+        content={md}
+        theme={theme}
+        sourceMap={exact}
+        allowHtml={isLatex}
+        articleRef={(el) => { previewDocRef.current = el; }}
+        onSourceJump={onSourceJump}
+        zoom={zoom}
+      />
     </>
   );
 }
