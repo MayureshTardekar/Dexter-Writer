@@ -114,6 +114,26 @@ function applyViaMonaco(editorRef: MutableRefObject<unknown>, current: string, c
   }
 }
 
+function insertAtCursor(editorRef: MutableRefObject<unknown>, text: string): boolean {
+  try {
+    const holder = editorRef.current as unknown as { _editor?: { getPosition: () => { lineNumber: number; column: number }; executeEdits: (src: string, ops: unknown[]) => void; focus: () => void }; _monaco?: { Range: new (...a: number[]) => unknown } } | null;
+    const ed = holder?._editor;
+    const monaco = holder?._monaco;
+    if (ed && monaco) {
+      const pos = ed.getPosition();
+      const Range = monaco.Range;
+      ed.executeEdits('ai-insert', [{
+        range: new Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column),
+        text,
+        forceMoveMarkers: true,
+      }]);
+      ed.focus();
+      return true;
+    }
+  } catch { /* noop */ }
+  return false;
+}
+
 export default function AiPlayground({
   docContent,
   setDocContent,
@@ -458,8 +478,8 @@ export default function AiPlayground({
         </label>
         <span className="muted small">{diffMode ? 'AI stages edits' : 'Auto-Apply on'}</span>
         {fileName && (
-          <span className="ai-file-pill" title={`Target active file: ${fileName} (${docMode})`}>
-            <Icon name="fileText" size={11} /> {fileName}
+          <span className="ai-file-pill" title={`Target: ${fileName} (${docMode}) · ${docContent.split('\n').length} lines loaded into AI context`}>
+            <Icon name="fileText" size={11} /> {fileName} · {docContent.split('\n').length}L
           </span>
         )}
         <div className="spacer" />
@@ -563,19 +583,34 @@ export default function AiPlayground({
             {m.role === 'assistant' && (
               <div className="bubble-actions" style={{ display: 'flex', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
                 {codeBlockOf(m.text) !== null && (
-                  <button
-                    className="btn xs secondary bubble-apply"
-                    title="Replace the document with the fenced code block above (a snapshot is saved first)"
-                    onClick={() => {
-                      const code = codeBlockOf(m.text);
-                      if (!code) return;
-                      saveSnapshot('active', 'active-file', contentRef.current, 'Pre-apply checkpoint').catch(() => {});
-                      setDocContent(code);
-                      toast('Code block applied to editor — snapshot saved in History', 'success');
-                    }}
-                  >
-                    <Icon name="bolt" size={12} /> Apply code to Editor
-                  </button>
+                  <>
+                    <button
+                      className="btn xs secondary bubble-apply"
+                      title="Replace the document with the fenced code block above (a snapshot is saved first)"
+                      onClick={() => {
+                        const code = codeBlockOf(m.text);
+                        if (!code) return;
+                        saveSnapshot('active', 'active-file', contentRef.current, 'Pre-apply checkpoint').catch(() => {});
+                        setDocContent(code);
+                        toast('Code block applied to editor — snapshot saved in History', 'success');
+                      }}
+                    >
+                      <Icon name="bolt" size={12} /> Apply to Editor
+                    </button>
+                    <button
+                      className="btn xs ghost"
+                      title="Insert code block at the current cursor position in the editor"
+                      onClick={() => {
+                        const code = codeBlockOf(m.text);
+                        if (!code) return;
+                        const ok = insertAtCursor(editorRef, code);
+                        if (ok) toast('Code inserted at cursor', 'success');
+                        else toast('Place cursor in editor first', 'info');
+                      }}
+                    >
+                      <Icon name="plus" size={12} /> Insert at cursor
+                    </button>
+                  </>
                 )}
                 {m.text.length > 20 && (
                   <button

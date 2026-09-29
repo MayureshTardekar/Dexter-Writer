@@ -71,15 +71,33 @@ export default function App() {
       return [];
     }
   });
-  const [showToc, setShowToc] = useState(true);
-  const [tocOpen, setTocOpen] = useState(() => {
+  type SidebarTab = 'files' | 'ai' | 'outline' | null;
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(() => {
     try {
-      return localStorage.getItem('dexter-write:toc-open') !== '0';
+      const raw = localStorage.getItem('dexter-write:sidebar-tab');
+      return raw === 'files' || raw === 'ai' || raw === 'outline' ? raw : 'files';
     } catch {
-      return true;
+      return 'files';
     }
   });
-  const [showFiles, setShowFiles] = useState(true);
+
+  const toggleSidebar = useCallback((tab: 'files' | 'ai' | 'outline') => {
+    setSidebarTab((curr) => {
+      const next = curr === tab ? null : tab;
+      try {
+        if (next) localStorage.setItem('dexter-write:sidebar-tab', next);
+        else localStorage.removeItem('dexter-write:sidebar-tab');
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const [recompileSeq, setRecompileSeq] = useState(0);
+  const triggerRecompile = useCallback(() => {
+    setRecompileSeq((s) => s + 1);
+    toast('Recompiling document…', 'info', 1500);
+  }, []);
+
   // Dynamic layout: any pane can be maximized; side panes can be hidden
   // (center editor always stays). Persisted across reloads.
   type PaneId = 'left' | 'center' | 'right';
@@ -279,6 +297,9 @@ export default function App() {
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         toast('Project autosaved locally', 'success', 1800);
+      } else if (mod && e.key === 'Enter') {
+        e.preventDefault();
+        triggerRecompile();
       } else if (e.key === 'Escape' && !paletteOpen) {
         closeTop();
       }
@@ -586,14 +607,13 @@ export default function App() {
       { id: 'mode-tex', group: 'Document', label: 'Switch to LaTeX', icon: 'book', run: () => switchMode('latex') },
       { id: 'mode-typ', group: 'Document', label: 'Switch to Typst', icon: 'bolt', run: () => switchMode('typst') },
       { id: 'theme', group: 'View', label: `Theme: switch to ${theme === 'dark' ? 'light' : 'dark'}`, icon: theme === 'dark' ? 'sun' : 'moon', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
-      { id: 'toc', group: 'View', label: `${showToc ? 'Hide' : 'Show'} table of contents`, icon: 'list', run: () => setShowToc((v) => !v) },
-      { id: 'files', group: 'View', label: `${showFiles ? 'Hide' : 'Show'} file explorer`, icon: 'files', run: () => setShowFiles((v) => !v) },
-      { id: 'layout-split', group: 'Layout', label: 'Triple split view', icon: 'layoutSplit', run: () => applyPreset('split') },
-      { id: 'layout-chat', group: 'Layout', label: 'Focus AI playground', icon: 'layoutLeft', run: () => applyPreset('chat') },
-      { id: 'layout-editor', group: 'Layout', label: 'Focus editor', icon: 'layoutCenter', run: () => applyPreset('editor') },
+      { id: 'recompile', group: 'Document', label: 'Recompile document (Ctrl+Enter)', icon: 'bolt', run: triggerRecompile },
+      { id: 'tab-files', group: 'View', label: `${sidebarTab === 'files' ? 'Close' : 'Open'} project files drawer`, icon: 'files', run: () => toggleSidebar('files') },
+      { id: 'tab-ai', group: 'View', label: `${sidebarTab === 'ai' ? 'Close' : 'Open'} AI assistant drawer`, icon: 'sparkles', run: () => toggleSidebar('ai') },
+      { id: 'tab-outline', group: 'View', label: `${sidebarTab === 'outline' ? 'Close' : 'Open'} document outline`, icon: 'list', run: () => toggleSidebar('outline') },
+      { id: 'layout-split', group: 'Layout', label: 'Split view (Editor + Preview)', icon: 'layoutSplit', run: () => applyPreset('split') },
+      { id: 'layout-editor', group: 'Layout', label: 'Focus editor (Code only)', icon: 'layoutCenter', run: () => applyPreset('editor') },
       { id: 'layout-preview', group: 'Layout', label: 'Focus preview', icon: 'layoutRight', run: () => applyPreset('preview') },
-      { id: 'toggle-chat', group: 'Layout', label: `${hidden.left ? 'Show' : 'Hide'} AI playground`, icon: 'sparkles', run: () => (hidden.left ? setHidden((h) => ({ ...h, left: false })) : hideSide('left')) },
-      { id: 'toggle-preview', group: 'Layout', label: `${hidden.right ? 'Show' : 'Hide'} preview`, icon: 'book', run: () => (hidden.right ? setHidden((h) => ({ ...h, right: false })) : hideSide('right')) },
     );
     acts.push(
       { id: 'open-keys', group: 'Open', label: 'API keys (BYOK vault)', icon: 'key', run: () => setShowByok(true) },
@@ -632,7 +652,7 @@ export default function App() {
     }
     return acts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, docMode, docContent, theme, showToc, showFiles, live, maximized, hidden, selection, applyTemplateToActive, switchMode]);
+  }, [files, docMode, docContent, theme, sidebarTab, toggleSidebar, triggerRecompile, live, maximized, hidden, selection, applyTemplateToActive, switchMode]);
 
   return (
     <div className="app">
@@ -641,102 +661,51 @@ export default function App() {
           <span className="brand-mark"><Icon name="bolt" size={13} /></span>
           <span className="brand-name">Dexter Write</span>
         </div>
-        <div className="tb-group">
-          <button className="btn xs" onClick={() => setShowFiles(!showFiles)} title="File explorer">
-            <Icon name="files" size={14} /><span className="btn-label">{files.length}</span>
-          </button>
-          <select className="tb-select" value={templateId} onChange={(e) => applyTemplateToActive(e.target.value)} aria-label="Load template into current file" title="Load template into current file">
-            {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
-          <div className="seg" role="group" aria-label="Document type">
-            <button className={docMode === 'markdown' ? 'active' : ''} onClick={() => switchMode('markdown')}>MD</button>
-            <button className={docMode === 'latex' ? 'active' : ''} onClick={() => switchMode('latex')}>LaTeX</button>
-            <button className={docMode === 'typst' ? 'active' : ''} onClick={() => switchMode('typst')}>Typst</button>
+        <div className="active-doc-badge" title="Active document and format">
+          <Icon name="fileText" size={13} />
+          <span>{active?.name ?? 'document'}</span>
+          <div className="seg" style={{ marginLeft: 4 }}>
+            <button className={docMode === 'markdown' ? 'active' : ''} onClick={() => switchMode('markdown')} title="Markdown">MD</button>
+            <button className={docMode === 'latex' ? 'active' : ''} onClick={() => switchMode('latex')} title="LaTeX">LaTeX</button>
+            <button className={docMode === 'typst' ? 'active' : ''} onClick={() => switchMode('typst')} title="Typst">Typst</button>
           </div>
         </div>
         <div className="spacer" />
-        <div className="seg view-switch" role="group" aria-label="Panel view">
-          <button className={mobileView === 'chat' ? 'active' : ''} onClick={() => setMobileView('chat')}>Chat</button>
-          <button className={mobileView === 'editor' ? 'active' : ''} onClick={() => setMobileView('editor')}>Editor</button>
-          <button className={mobileView === 'preview' ? 'active' : ''} onClick={() => setMobileView('preview')}>Preview</button>
-        </div>
-        <div className="tb-group">
-          <button className="btn xs" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">
-            <Icon name="command" size={14} /><span className="btn-label optional">Commands</span>
+        <div className="seg" role="group" aria-label="Layout view">
+          <button
+            className={maximized === 'center' ? 'active' : ''}
+            onClick={() => applyPreset('editor')}
+            title="Code editor only"
+          >
+            Code
+          </button>
+          <button
+            className={maximized === null ? 'active' : ''}
+            onClick={() => applyPreset('split')}
+            title="Split view (Code + Preview)"
+          >
+            Split
+          </button>
+          <button
+            className={maximized === 'right' ? 'active' : ''}
+            onClick={() => applyPreset('preview')}
+            title="Preview only"
+          >
+            Preview
           </button>
         </div>
-        <div className="tb-sep" />
+        <button className="btn xs btn-recompile" onClick={triggerRecompile} title="Recompile document (Ctrl+Enter)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <span>Recompile</span>
+        </button>
+        <div className="spacer" />
         <div className="tb-group">
-          {live ? (
-            <>
-              <span className="live-badge" title={peers.map((p) => p.name).join(', ') || 'Connecting…'}>
-                <span className="live-dot" />{live.room} · {peers.length || 1}
-              </span>
-              <button className="btn xs" onClick={copyInvite} title="Copy invite link">
-                <Icon name="link" size={14} /><span className="btn-label optional">Invite</span>
-              </button>
-              <button className="btn xs danger" onClick={leaveLive} title="Leave live session">
-                <Icon name="logout" size={14} /><span className="btn-label optional">Leave</span>
-              </button>
-            </>
-          ) : (
-            <button className="btn xs" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">
-              <Icon name="sparkles" size={14} /><span className="btn-label optional">Live</span>
-            </button>
-          )}
-          <button className="btn xs icon-btn" onClick={() => setShowGithub(true)} title="GitHub sync"><Icon name="github" size={15} /></button>
-          <button className="btn xs icon-btn" onClick={() => setShowCitations(true)} title={`Citations${citations.length > 0 ? ` (${citations.length})` : ''}`}><Icon name="book" size={15} /></button>
-          <button className="btn xs icon-btn" onClick={() => setShowHistory(true)} title="Version history"><Icon name="history" size={15} /></button>
-          <button className="btn xs icon-btn" onClick={() => setShowShortcuts(true)} title="Shortcuts"><Icon name="keyboard" size={15} /></button>
-          <button className="btn xs" onClick={() => setShowReview(true)} title="Autonomous Document Review Agent">
-            <Icon name="sparkles" size={14} /><span className="btn-label optional">Audit</span>
-          </button>
-        </div>
-        <div className="tb-sep" />
-        <div className="tb-group">
-          <button className="btn xs" onClick={() => setShowToc(!showToc)} title="Table of contents">
-            <Icon name="list" size={14} /><span className="btn-label optional">TOC</span>
-          </button>
-          <div className="seg" role="group" aria-label="Layout presets">
-            <button
-              className={maximized === null && !hidden.left && !hidden.right ? 'active' : ''}
-              onClick={() => applyPreset('split')}
-              title="Triple split: chat, editor, preview"
-            >
-              <Icon name="layoutSplit" size={14} />
-            </button>
-            <button
-              className={maximized === 'left' ? 'active' : ''}
-              onClick={() => applyPreset('chat')}
-              title="Focus AI playground"
-            >
-              <Icon name="layoutLeft" size={14} />
-            </button>
-            <button
-              className={maximized === 'center' ? 'active' : ''}
-              onClick={() => applyPreset('editor')}
-              title="Focus editor"
-            >
-              <Icon name="layoutCenter" size={14} />
-            </button>
-            <button
-              className={maximized === 'right' ? 'active' : ''}
-              onClick={() => applyPreset('preview')}
-              title="Focus preview"
-            >
-              <Icon name="layoutRight" size={14} />
-            </button>
-          </div>
-          <button className="btn xs icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
-            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
-          </button>
-          <button className="btn xs" onClick={() => setShowMcp(true)} title="External MCP servers">
-            <Icon name="plug" size={14} /><span className="btn-label optional">{connectedCount > 0 ? `MCP ${connectedCount}` : 'MCP'}</span>
-          </button>
-          <button className="btn xs" onClick={() => setShowByok(true)} title="BYOK settings">
-            <Icon name="key" size={14} /><span className="btn-label optional">{resolveProvider(provider).label}</span>
-            <span className={`dot ${apiKey ? 'connected' : ''}`} title={apiKey ? 'Key saved' : 'No key'} />
-          </button>
+          <select className="tb-select" value={templateId} onChange={(e) => applyTemplateToActive(e.target.value)} aria-label="Load template into current file" title="Load template into current file">
+            <option value="" disabled>Template ▾</option>
+            {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
           <select
             className="tb-select"
             aria-label="Export"
@@ -759,84 +728,144 @@ export default function App() {
             <option value="txt">Plain text</option>
             <option value="zip">Project .zip ({files.length} files)</option>
           </select>
+          {live ? (
+            <>
+              <span className="live-badge" title={peers.map((p) => p.name).join(', ') || 'Connecting…'}>
+                <span className="live-dot" />{live.room} · {peers.length || 1}
+              </span>
+              <button className="btn xs" onClick={copyInvite} title="Copy invite link">
+                <Icon name="link" size={14} /><span className="btn-label optional">Invite</span>
+              </button>
+              <button className="btn xs danger" onClick={leaveLive} title="Leave live session">
+                <Icon name="logout" size={14} /><span className="btn-label optional">Leave</span>
+              </button>
+            </>
+          ) : (
+            <button className="btn xs ghost icon-btn" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">
+              <Icon name="sparkles" size={14} />
+            </button>
+          )}
+          <button className="btn xs icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
+          </button>
+          <button className="btn xs" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">
+            <Icon name="command" size={14} /><span className="btn-label optional">Ctrl+K</span>
+          </button>
         </div>
       </header>
 
       <main className="panes" data-view={mobileView}>
-        {isVisible('left') ? (
-          <section className="pane left" style={maximized ? { flex: 1 } : { width: `${leftPct}%` }}>
-            <div className="pane-head">
-              <span className="pane-title">AI Playground</span>
-              <span className="pane-actions">
-                <span className="muted small hide-sm">{resolveProvider(provider).label}</span>
-                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('left')} title={maximized === 'left' ? 'Restore split view' : 'Maximize playground'}>
-                  <Icon name={maximized === 'left' ? 'minimize' : 'expand'} size={13} />
-                </button>
-                <button className="btn xs ghost icon-btn" onClick={() => hideSide('left')} title="Hide playground">
-                  <Icon name="chevronsLeft" size={13} />
-                </button>
-              </span>
-            </div>
-            <AiPlayground
-              docContent={docContent}
-              setDocContent={setDocContent}
-              docMode={docMode}
-              fileName={active?.name ?? ''}
-              provider={provider}
-              apiKey={apiKey}
-              model={model}
-              baseUrl={baseUrl}
-              selection={selection}
-              clearSelection={() => setSelection(null)}
-              editorRef={editorRef}
-              servers={servers}
-              theme={theme}
-              onOpenReview={() => setShowReview(true)}
-            />
-          </section>
-        ) : maximized === null && (
-          <button className="rail rail-left" onClick={() => setHidden((h) => ({ ...h, left: false }))} title="Show AI playground">
-            <Icon name="sparkles" size={15} />
+        {/* Activity Bar Dock on Far Left */}
+        <aside className="activity-bar" aria-label="Primary sidebar tools">
+          <button
+            className={`act-btn ${sidebarTab === 'files' ? 'active' : ''}`}
+            onClick={() => toggleSidebar('files')}
+            title="Project Files"
+            aria-label="Project Files"
+          >
+            <Icon name="files" size={17} />
           </button>
-        )}
-        {maximized === null && isVisible('left') && (
-          <div className="divider" onMouseDown={(e) => onDragStart('left', e)} onDoubleClick={resetSplit} title="Drag to resize · double-click to reset" />
-        )}
+          <button
+            className={`act-btn ${sidebarTab === 'ai' ? 'active' : ''}`}
+            onClick={() => toggleSidebar('ai')}
+            title="AI Assistant"
+            aria-label="AI Assistant"
+          >
+            <Icon name="sparkles" size={17} />
+          </button>
+          <button
+            className={`act-btn ${sidebarTab === 'outline' ? 'active' : ''}`}
+            onClick={() => toggleSidebar('outline')}
+            title="Document Outline"
+            aria-label="Document Outline"
+          >
+            <Icon name="list" size={17} />
+          </button>
 
-        {(isVisible('center')) && (
-          <section className="pane center" style={{ flex: 1 }}>
-            <div className="pane-head">
-              <span className="pane-title">Editor</span>
-              <span className="pane-actions">
-                <span className="muted small hide-sm">{docMode} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
-                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('center')} title={maximized === 'center' ? 'Restore split view' : 'Maximize editor'}>
-                  <Icon name={maximized === 'center' ? 'minimize' : 'expand'} size={13} />
-                </button>
-              </span>
-            </div>
-            <div className="filebar">
-              <button
-                className="btn xs ghost icon-btn filebar-toggle"
-                onClick={() => setShowFiles((v) => !v)}
-                title={showFiles ? 'Collapse file explorer (tabs stay)' : 'Expand file explorer'}
-                aria-label={showFiles ? 'Collapse file explorer' : 'Expand file explorer'}
-              >
-                <Icon name={showFiles ? 'chevronsLeft' : 'chevronsRight'} size={13} />
-              </button>
-              <div className="tabs">
-                {files.map((f) => (
-                  <button key={f.id} className={`tab ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
-                    {f.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="editor-row">
-              {showFiles && (
-                <aside className="filetree" aria-label="File explorer">
-                  <div className="filetree-head">Explorer</div>
+          <div className="act-spacer" />
+
+          <button
+            className="act-btn"
+            onClick={() => setShowReview(true)}
+            title="Autonomous Document Review Agent"
+            aria-label="Document Review"
+          >
+            <Icon name="sparkles" size={16} />
+          </button>
+          <button
+            className="act-btn"
+            onClick={() => setShowHistory(true)}
+            title="Version History & Snapshots"
+            aria-label="Version History"
+          >
+            <Icon name="history" size={16} />
+          </button>
+          <button
+            className="act-btn"
+            onClick={() => setShowCitations(true)}
+            title={`Citations${citations.length > 0 ? ` (${citations.length})` : ''}`}
+            aria-label="Citations"
+          >
+            <Icon name="book" size={16} />
+          </button>
+          <button
+            className="act-btn"
+            onClick={() => setShowGithub(true)}
+            title="GitHub Sync"
+            aria-label="GitHub Sync"
+          >
+            <Icon name="github" size={16} />
+          </button>
+          <button
+            className="act-btn"
+            onClick={() => setShowMcp(true)}
+            title={connectedCount > 0 ? `MCP Servers (${connectedCount} active)` : "External MCP Servers"}
+            aria-label="External MCP"
+          >
+            <Icon name="plug" size={16} />
+          </button>
+          <button
+            className="act-btn"
+            onClick={() => setShowByok(true)}
+            title={`AI & Vault Settings (${resolveProvider(provider).label})`}
+            aria-label="AI Settings"
+          >
+            <Icon name="key" size={16} />
+          </button>
+        </aside>
+
+        {/* Collapsible Left Drawer (Files / AI / Outline) */}
+        {sidebarTab !== null && isVisible('left') && (
+          <section className="pane left" style={maximized ? { flex: 1 } : { width: `${leftPct}%` }}>
+            {sidebarTab === 'files' && (
+              <div className="sidebar-drawer filetree-drawer">
+                <div className="pane-head">
+                  <span className="pane-title">Project Files ({files.length})</span>
+                  <span className="pane-actions">
+                    <button className="btn xs ghost icon-btn" onClick={() => toggleSidebar('files')} title="Collapse sidebar">
+                      <Icon name="chevronsLeft" size={13} />
+                    </button>
+                  </span>
+                </div>
+                <div className="template-picker-row">
+                  <span className="muted small">Template:</span>
+                  <select
+                    className="tb-select"
+                    value={templateId}
+                    onChange={(e) => applyTemplateToActive(e.target.value)}
+                    aria-label="Load template"
+                  >
+                    {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div className="filetree-content" style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
                   {files.map((f) => (
-                    <div key={f.id} className={`file-item ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
+                    <div
+                      key={f.id}
+                      className={`file-item ${f.id === activeId ? 'active' : ''}`}
+                      onClick={() => setActiveId(f.id)}
+                      title={f.name}
+                    >
                       <Icon name="fileText" size={13} className="ficon" />
                       <span className="fname">{f.name}</span>
                       <span className="fmode">{f.mode === 'markdown' ? 'md' : f.mode === 'latex' ? 'tex' : 'typ'}</span>
@@ -852,42 +881,161 @@ export default function App() {
                       )}
                     </div>
                   ))}
-                  <div className="file-add">
-                    <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addFile(); }} placeholder="new-file" aria-label="New file name" />
-                    <select value={newMode} onChange={(e) => setNewMode(e.target.value as DocMode)} aria-label="New file type">
-                      <option value="markdown">.md</option>
-                      <option value="latex">.tex</option>
-                      <option value="typst">.typ</option>
-                    </select>
-                    <button className="btn xs primary icon-btn" onClick={addFile} title="New file" aria-label="New file">
-                      <Icon name="plus" size={13} />
+                </div>
+                <div className="file-add">
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addFile(); }}
+                    placeholder="new-filename"
+                    aria-label="New file name"
+                  />
+                  <select value={newMode} onChange={(e) => setNewMode(e.target.value as DocMode)} aria-label="New file type">
+                    <option value="markdown">.md</option>
+                    <option value="latex">.tex</option>
+                    <option value="typst">.typ</option>
+                  </select>
+                  <button className="btn xs primary icon-btn" onClick={addFile} title="New file" aria-label="New file">
+                    <Icon name="plus" size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {sidebarTab === 'ai' && (
+              <div className="sidebar-drawer ai-drawer">
+                <div className="pane-head">
+                  <span className="pane-title">AI Assistant</span>
+                  <span className="pane-actions">
+                    <span className="muted small hide-sm">{resolveProvider(provider).label}</span>
+                    <button className="btn xs ghost icon-btn" onClick={() => toggleSidebar('ai')} title="Collapse sidebar">
+                      <Icon name="chevronsLeft" size={13} />
                     </button>
-                  </div>
-                </aside>
-              )}
-              <div className="editor-main">
-                <EditorPane
-                  key={live ? `live-${live.room}-${active?.id}` : `local-${active?.id}`}
-                  value={docContent}
-                  mode={docMode}
-                  theme={theme}
-                  onChange={setDocContent}
-                  onSelection={(text, startLine, endLine) => setSelection({ text, startLine, endLine })}
+                  </span>
+                </div>
+                <AiPlayground
+                  docContent={docContent}
+                  setDocContent={setDocContent}
+                  docMode={docMode}
+                  fileName={active?.name ?? ''}
+                  provider={provider}
+                  apiKey={apiKey}
+                  model={model}
+                  baseUrl={baseUrl}
+                  selection={selection}
+                  clearSelection={() => setSelection(null)}
                   editorRef={editorRef}
-                  collab={live && active ? { session: live, fileId: active.id } : null}
+                  servers={servers}
+                  theme={theme}
+                  onOpenReview={() => setShowReview(true)}
                 />
               </div>
+            )}
+
+            {sidebarTab === 'outline' && (
+              <div className="sidebar-drawer outline-drawer">
+                <div className="pane-head">
+                  <span className="pane-title">Outline ({outline.length})</span>
+                  <span className="pane-actions">
+                    <button className="btn xs ghost icon-btn" onClick={() => toggleSidebar('outline')} title="Collapse sidebar">
+                      <Icon name="chevronsLeft" size={13} />
+                    </button>
+                  </span>
+                </div>
+                <nav className="toc" aria-label="Document outline">
+                  {outline.length === 0 && <span className="muted small" style={{ padding: '12px' }}>No headings found in document</span>}
+                  {outline.map((o, i) => (
+                    <button
+                      key={i}
+                      className={`toc-item l${Math.min(3, o.level)}`}
+                      onClick={() => jumpToLine(o.line)}
+                      title={`Jump to line ${o.line}`}
+                    >
+                      {o.title}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Divider when left drawer is visible */}
+        {maximized === null && sidebarTab !== null && isVisible('left') && (
+          <div className="divider" onMouseDown={(e) => onDragStart('left', e)} onDoubleClick={resetSplit} title="Drag to resize · double-click to reset" />
+        )}
+
+        {/* Center Pane (Editor) */}
+        {isVisible('center') && (
+          <section className="pane center" style={{ flex: 1 }}>
+            <div className="pane-head">
+              <span className="pane-title">Editor</span>
+              <span className="pane-actions">
+                <span className="muted small hide-sm">{docMode} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
+                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('center')} title={maximized === 'center' ? 'Restore split view' : 'Maximize editor'}>
+                  <Icon name={maximized === 'center' ? 'minimize' : 'expand'} size={13} />
+                </button>
+              </span>
+            </div>
+            <div className="filebar">
+              <div className="tabs">
+                {files.map((f) => (
+                  <button key={f.id} className={`tab ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
+                    <Icon name="fileText" size={12} className="ficon" />
+                    <span className="tab-name">{f.name}</span>
+                    {files.length > 1 && (
+                      <span
+                        className="tab-close"
+                        onClick={(e) => { e.stopPropagation(); removeFile(f.id); }}
+                        title={`Close ${f.name}`}
+                      >
+                        ×
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="btn xs ghost icon-btn"
+                style={{ margin: '4px 6px' }}
+                onClick={() => {
+                  const name = uniqueName(filesRef.current, `untitled.${extForMode(docMode)}`);
+                  const f = newProjectFile(name, docMode, '');
+                  setFiles((prev) => [...prev, f]);
+                  setActiveId(f.id);
+                  liveRef.current?.addFile(f);
+                  toast(`Created ${name}`, 'success', 2000);
+                }}
+                title="New file"
+              >
+                <Icon name="plus" size={13} />
+              </button>
+            </div>
+            <div className="editor-main" style={{ flex: 1, minHeight: 0 }}>
+              <EditorPane
+                key={live ? `live-${live.room}-${active?.id}` : `local-${active?.id}`}
+                value={docContent}
+                mode={docMode}
+                theme={theme}
+                onChange={setDocContent}
+                onSelection={(text, startLine, endLine) => setSelection({ text, startLine, endLine })}
+                editorRef={editorRef}
+                collab={live && active ? { session: live, fileId: active.id } : null}
+              />
             </div>
           </section>
         )}
+
+        {/* Divider between Center and Right */}
         {maximized === null && isVisible('right') && (
           <div className="divider" onMouseDown={(e) => onDragStart('right', e)} onDoubleClick={resetSplit} title="Drag to resize · double-click to reset" />
         )}
 
-        {isVisible('right') ? (
+        {/* Right Pane (Preview) */}
+        {isVisible('right') && (
           <section className="pane right" style={maximized ? { flex: 1 } : { width: `${rightPct}%` }}>
             <div className="pane-head">
-              <span className="pane-title">Preview</span>
+              <span className="pane-title">Preview (PDF)</span>
               <span className="pane-actions">
                 <button className="btn xs ghost icon-btn" onClick={() => toggleMax('right')} title={maximized === 'right' ? 'Restore split view' : 'Maximize preview'}>
                   <Icon name={maximized === 'right' ? 'minimize' : 'expand'} size={13} />
@@ -897,41 +1045,14 @@ export default function App() {
                 </button>
               </span>
             </div>
-            {showToc && (
-              <div className="toc-wrap">
-                <button
-                  className="toc-head"
-                  onClick={() => {
-                    setTocOpen((v) => {
-                      try { localStorage.setItem('dexter-write:toc-open', v ? '0' : '1'); } catch { /* ignore */ }
-                      return !v;
-                    });
-                  }}
-                  aria-expanded={tocOpen}
-                  title={tocOpen ? 'Collapse outline' : 'Expand outline'}
-                >
-                  <Icon name="chevron" size={12} className={tocOpen ? '' : 'closed'} />
-                  <span>Outline</span>
-                  <span className="muted small">{outline.length}</span>
-                </button>
-                {tocOpen && (
-                  <nav className="toc" aria-label="Document outline">
-                    {outline.length === 0 && <span className="muted small">No headings yet</span>}
-                    {outline.map((o, i) => (
-                      <button key={i} className={`toc-item l${o.level}`} onClick={() => jumpToLine(o.line)} title={`Go to line ${o.line}`}>
-                        {o.title}
-                      </button>
-                    ))}
-                  </nav>
-                )}
-              </div>
-            )}
-            <PreviewPane content={docContent} mode={docMode} theme={theme} onSourceJump={handleSourceJump} />
+            <PreviewPane
+              content={docContent}
+              mode={docMode}
+              theme={theme}
+              onSourceJump={handleSourceJump}
+              compileTrigger={recompileSeq}
+            />
           </section>
-        ) : maximized === null && (
-          <button className="rail rail-right" onClick={() => setHidden((h) => ({ ...h, right: false }))} title="Show preview">
-            <Icon name="book" size={15} />
-          </button>
         )}
       </main>
 

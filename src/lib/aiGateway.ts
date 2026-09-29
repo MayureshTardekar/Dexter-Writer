@@ -261,7 +261,16 @@ ${modeRules}
 ${extraContext ? `${extraContext}\n` : ''}${externalHint ? `- External MCP tools are available (prefixed mcp_). Use them to fetch live data (repos, search, citations), then write results into the document with the document tools.\n${externalHint}` : '- No external MCP servers connected.'}
 - If no tool is needed, answer concisely in chat.
 - After tools, summarize what changed with line numbers.
-Document outline:\n${outlineText || '(empty)'}\n\nDocument excerpt (may be truncated):\n${docExcerpt.slice(0, 6000)}`;
+Document outline:
+${outlineText || '(empty)'}
+
+CURRENT DOCUMENT FULL CONTEXT (${fileName || 'active file'} - ${docMode}):
+\`\`\`${docMode}
+${docExcerpt.slice(0, 10000)}
+\`\`\`
+IMPORTANT FOR EDITS:
+- If using tools, call replace_lines or insert_content surgically with exact line numbers.
+- If responding with code blocks without tools, preserve all preamble, macros, and unrelated sections from the document above. Never drop parts of the document unless explicitly instructed.`;
 }
 
 export async function callLlm(

@@ -742,6 +742,19 @@ ul.resume-item-list li {
   color: #333;
 }
 
+/* Compact Overleaf-like rhythm for resume documents (dense 1-page feel) */
+.preview-doc.resume-doc { font-size: 11pt; padding: 26px 32px; }
+.preview-doc.resume-doc h1 { font-size: 19pt; margin: 0 0 2px; padding-bottom: 2px; }
+.preview-doc.resume-doc h2 { font-size: 11pt; margin: 10px 0 3px; }
+.preview-doc.resume-doc h3 { font-size: 10.5pt; margin: 6px 0 2px; }
+.preview-doc.resume-doc p { margin: 2px 0; }
+.preview-doc.resume-doc .resume-center p { margin: 0; line-height: 1.5; }
+.preview-doc.resume-doc .resume-subheading { margin: 4px 0 1px; }
+.preview-doc.resume-doc .resume-project-heading { margin: 5px 0 0; }
+.preview-doc.resume-doc ul.resume-item-list { margin: 1px 0 3px 14px; }
+.preview-doc.resume-doc ul.resume-item-list li { margin: 1px 0; line-height: 1.45; }
+.preview-doc.resume-doc blockquote { margin: 4px 0; }
+
 /* ============ statusbar ============ */
 .statusbar {
   display: flex; align-items: center; gap: 0;
@@ -923,6 +936,21 @@ ul.resume-item-list li {
 .gh-log { background: #0a0d13; color: #c9d4ea; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-size: 11.5px; font-family: var(--mono); max-height: 190px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 5px 0 0; }
 [data-theme="light"] .gh-log { background: #101828; }
 
+/* ============ LaTeX engine gate (one-time download consent) ============ */
+.engine-gate {
+  max-width: 430px;
+  margin: 26px auto 6px;
+  padding: 20px 22px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--border-hi), var(--shadow);
+}
+.engine-gate h3 { margin: 0 0 8px; font-family: var(--display); font-size: 15px; }
+.engine-gate p { margin: 0 0 6px; color: var(--muted); font-size: 12.5px; }
+.engine-gate .btn { margin-top: 10px; }
+
 /* ============ history / citations ============ */
 .snap-card { padding: 9px 11px; border-radius: var(--radius); background: var(--panel2); cursor: pointer; border: 1px solid transparent; display: flex; flex-direction: column; gap: 3px; }
 .snap-card:hover { border-color: var(--muted-dim); }
@@ -1011,9 +1039,161 @@ ul.resume-item-list li {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
+/* ============ Overleaf-Grade IDE Activity Bar & Recompile ============ */
+.activity-bar {
+  width: 48px;
+  background: var(--panel2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 6px;
+  flex-shrink: 0;
+  z-index: 20;
+}
+.act-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+.act-btn:hover {
+  color: var(--text);
+  background: var(--panel3);
+}
+.act-btn.active {
+  color: #fff;
+  background: var(--brand-grad);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.45);
+}
+.act-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.act-spacer {
+  flex: 1;
+}
+.btn-recompile {
+  background: #0e8a4f !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.18) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  padding: 0 14px !important;
+  height: 30px !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  box-shadow: 0 2px 8px rgba(14, 138, 79, 0.35) !important;
+  transition: all 0.15s ease !important;
+  cursor: pointer !important;
+}
+.btn-recompile:hover {
+  background: #11a65f !important;
+  box-shadow: 0 4px 14px rgba(17, 166, 95, 0.5) !important;
+  transform: translateY(-1px);
+}
+.btn-recompile:active {
+  transform: translateY(0);
+}
+.active-doc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.active-doc-mode {
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+/* Sidebar drawers for Overleaf Activity Bar */
+.sidebar-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+.filetree-drawer .file-item {
+  margin: 3px 8px;
+  border-radius: 6px;
+}
+.filetree-drawer .file-add {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  background: var(--panel2);
+}
+.template-picker-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--panel2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.template-picker-row select {
+  flex: 1;
+  min-width: 0;
+}
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted-dim);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+.tab-close:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.outline-drawer .toc {
+  max-height: none;
+  flex: 1;
+  padding: 8px;
+}
+
 /* ============ print ============ */
 @media print {
-  .toolbar, .pane.left, .pane.center, .statusbar, .toc, .toc-wrap, .pane-head, .divider, .toasts, .rail { display: none !important; }
+  .toolbar, .pane.left, .pane.center, .statusbar, .toc, .toc-wrap, .pane-head, .divider, .toasts, .rail, .activity-bar { display: none !important; }
   .panes { display: block; }
   .pane.right { display: flex !important; width: 100% !important; }
   .preview-scroll { overflow: visible; padding: 0; }

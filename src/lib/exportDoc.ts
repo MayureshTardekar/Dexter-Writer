@@ -1,5 +1,6 @@
 import { stripToPlainText } from './docUtils';
 import type { DocMode } from './templates';
+import { compileLatexPdf } from './latexEngine';
 import { compileTypstPdf } from './typstEngine';
 import { downloadZip } from './zip';
 import { toast } from './toast';
@@ -45,6 +46,27 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6p
 export function doExport(kind: ExportKind, content: string, mode: DocMode): void {
   const stamp = new Date().toISOString().slice(0, 10);
   if (kind === 'pdf') {
+    if (mode === 'latex') {
+      void (async () => {
+        toast('Compiling Overleaf-exact PDF…', 'info', 3000);
+        const res = await compileLatexPdf(content);
+        if (res.pdf) {
+          const blob = new Blob([new Uint8Array(res.pdf)], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `resume-${stamp}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          toast('PDF downloaded successfully!', 'success', 3000);
+        } else {
+          toast(`PDF compilation failed: ${res.error || 'Check log'}`, 'error', 6000);
+        }
+      })();
+      return;
+    }
     // Print-styled engine: preview pane has print CSS, window.print() -> Save as PDF
     window.print();
     return;

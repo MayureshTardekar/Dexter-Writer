@@ -76,7 +76,7 @@ function add(a, b) {
 Welcome to \\textbf{Dexter Write}! Visit \\href{https://github.com}{GitHub}.
 `;
     const res = latexToReadable(tex);
-    expect(res).toContain('## Introduction');
+    expect(res).toContain('<h2 class="resume-section">Introduction</h2>');
     expect(res).toContain('**Dexter Write**');
     expect(res).toContain('[GitHub](https://github.com)');
   });

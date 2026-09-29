@@ -289,7 +289,8 @@ function inlineLatexToHtml(text: string): string {
   s = s.replace(/\\_/g, '_');
   s = s.replace(/\\#/g, '#');
   // vspace, hspace etc — strip
-  s = s.replace(/\\(?:vspace|hspace|quad|qquad|enspace|thinspace|kern)\*?(?:\{[^}]*\})?/g, ' ');
+  s = s.replace(/\\\\(?:vspace|hspace|enspace|thinspace|kern)\*?(?:\{[^}]*\})?/g, ' ');
+  s = s.replace(/\\\\(?:qquad|quad)\b/g, ' · ');
   s = s.replace(/\\(?:small|large|Large|huge|Huge|normalsize|footnotesize|scriptsize)\b/g, '');
   // strip remaining single-arg commands but keep content
   s = s.replace(/\\[a-zA-Z]+\{([^}]*)\}/g, '$1');
@@ -573,22 +574,28 @@ export function parseLatexLevel3(tex: string): string {
     .replace(/\\(?:vspace|hspace)\*?\{[^}]*\}/g, '')
     .replace(/\\(?:Huge|huge|LARGE|Large|large|normalsize|small|footnotesize|tiny|scshape|normalfont|bfseries|itshape)\b/g, '')
     .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, (_m, inner) => {
-      // Detect resume name: \textbf{\Huge \scshape Name} or \textbf{\Huge Name}
-      const nameMatch = /\\textbf\s*\{(?:\\(?:Huge|LARGE|Large)\s+)?(?:\\scshape\s+)?([^\\{}][^{}]*)\}/.exec(inner);
-      const name = nameMatch ? inlineLatexToHtml(nameMatch[1]) : null;
-      // Split on LaTeX line-breaks \\ and clean each line
-      const lines = String(inner)
-        .replace(/\\\\(?:\[[^\]]*\])?/g, '\n')
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-      if (name && lines.length > 0) {
-        // First line is the name → h1; remaining lines are contact info
-        const contactLines = lines.slice(1).map((l) => inlineLatexToHtml(l)).filter((l) => l.trim().length > 0);
-        const contactHtml = contactLines.map((l) => `<p>${l}</p>`).join('\n');
+      // Detect resume name: {\Huge \textbf{Name}} or \textbf{\Huge Name}
+      const nameMatch = /(?:\\textbf\s*\{(?:\\(?:Huge|LARGE|Large)\s+)?(?:\\scshape\s+)?([^\\{}][^{}]*)\}|\{\\Huge\s+\\textbf\{([^}]+)\}\})/.exec(inner);
+      const name = nameMatch ? inlineLatexToHtml(nameMatch[1] || nameMatch[2]) : null;
+
+      // Step 1: Mark ONLY true LaTeX \\ line-breaks with a sentinel.
+      // Source-formatting newlines (indentation between \quad items) must be
+      // collapsed — otherwise each \faPhone, \faEnvelope etc. ends up on its
+      // own line instead of staying inline within their row.
+      const marked = String(inner).replace(/\\\\(?:\[[^\]]*\])?/g, '%%CENTERBREAK%%');
+
+      // Step 2: Collapse source whitespace/newlines WITHIN each marked segment
+      const segments = marked.split('%%CENTERBREAK%%').map((seg) =>
+        seg.replace(/\s+/g, ' ').trim(),
+      ).filter((seg) => seg.length > 0);
+
+      if (name && segments.length > 0) {
+        // First segment contains the name — skip it; rest are contact rows
+        const contactRows = segments.slice(1).map((seg) => inlineLatexToHtml(seg)).filter(Boolean);
+        const contactHtml = contactRows.map((row) => `<p>${row}</p>`).join('\n');
         return `\n\n<div class="resume-center">\n<h1>${name}</h1>\n${contactHtml}\n</div>\n\n`;
       }
-      const cleanLines = lines.join('  \n');
+      const cleanLines = segments.map((seg) => inlineLatexToHtml(seg)).join('  \n');
       return `\n\n<div class="resume-center">\n\n${cleanLines}\n\n</div>\n\n`;
     });
 
@@ -654,12 +661,12 @@ export function parseLatexLevel3(tex: string): string {
   // 20b. LaTeX control spaces and fontawesome icon commands.
   // A trailing control space (e.g. "\faPhone\ ") otherwise survives generic
   // cleanup as a stray backslash in the preview ("\ +91...", "\LinkedIn").
-  // \/ is dropped (italic correction has no readable equivalent); \-/ kept
-  // for generic cleanup since it must not inject spaces mid-word.
+  // AI models also emit invalid starred forms (\faMapMarker*) — consume the
+  // star too, or it survives as a literal "*" starting emphasis.
   s = s
     .replace(/\\\//g, '')
     .replace(/\\[ ,;:]/g, ' ')
-    .replace(/\\fa[A-Z][A-Za-z]*\s*/g, '');
+    .replace(/\\fa[A-Z][A-Za-z]*\*?\s*/g, '');
 
   // 21. Generic cleanup of remaining unrecognized single macros
   s = s

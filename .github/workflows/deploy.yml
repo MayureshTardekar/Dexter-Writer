@@ -30,6 +30,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download BusyTeX engine assets
+        # ~640MB of WASM + TeX Live data (NOT committed to git) fetched from
+        # GitHub Releases into public/core so the deployed site can compile.
+        run: npx texlyre-busytex download-assets
+
       - name: Lint check
         run: npm run lint
 

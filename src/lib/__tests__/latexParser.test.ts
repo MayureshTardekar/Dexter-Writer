@@ -168,7 +168,7 @@ Body text.
       expect(result).not.toContain('titlerule');
       expect(result).toContain('Mayuresh Tardekar');
       expect(result).toContain('Mumbai, India');
-      expect(result).toContain('## Education');
+      expect(result).toContain('<h2 class="resume-section">Education</h2>');
       expect(result).toContain('Body text.');
     });
 
@@ -211,12 +211,72 @@ Body text.
       expect(result).not.toContain('same');
       expect(result).not.toContain('0in');
       expect(result).not.toContain('tabular*');
+      expect(result).not.toContain('extracolsep');
+      expect(result).not.toMatch(/^ *- r /m);
+      expect(result).not.toMatch(/^- document$/m);
+      expect(result).toContain('resume-subheading');
       expect(result).toContain('Mayuresh Tardekar');
       expect(result).toContain('Mumbai, India');
       expect(result).toContain('Sardar Patel Institute of Technology');
-      expect(result).toContain('2025 -- 2027');
-      expect(result).toContain('## Education');
-      expect(result).toContain('[test@test.com](mailto:test@test.com)');
+      expect(result).toContain('2025 – 2027');
+      expect(result).toContain('<h2 class="resume-section">Education</h2>');
+      expect(result).toContain('<a href="mailto:test@test.com">test@test.com</a>');
+    });
+
+    it('does not let macro expansion swallow unrelated groups (prefix + adjacency)', () => {
+      // \resumeItem must not match inside \resumeItemListEnd and must not
+      // grab a far-away {document} group as its argument.
+      const tex = [
+        '\\newcommand{\\resumeItem}[1]{\\item #1}',
+        '\\newcommand{\\resumeItemListEnd}{\\end{itemize}}',
+        '\\begin{document}',
+        '\\resumeItemListStart',
+        '\\resumeItem{Hi.}',
+        '\\resumeItemListEnd',
+        '\\end{document}',
+      ].join('\n');
+      const result = parseLatexLevel3(tex);
+      expect(result).toContain('Hi.');
+      expect(result).not.toMatch(/^- document$/m);
+    });
+
+    it('strips control spaces and fontawesome icons without leaving backslashes', () => {
+      const tex = '\\begin{document}\n\\faPhone\\ +91-8828 $|$ \\faMapMarker\\ Mumbai \\/ India\n\\end{document}\n';
+      const result = parseLatexLevel3(tex);
+      expect(result).not.toMatch(/\\[a-zA-Z]/);
+      expect(result).toContain('+91-8828');
+      expect(result).toContain('Mumbai');
+    });
+
+    it('consumes invalid starred fontawesome forms without leaving asterisks', () => {
+      const tex = '\\begin{document}\n\\faMapMarker*\\ Mumbai \\faExternalLink* Link\n\\end{document}\n';
+      const result = parseLatexLevel3(tex);
+      expect(result).not.toContain('\\faMapMarker');
+      expect(result).not.toContain('\\faExternalLink');
+      expect(result).toContain('Mumbai');
+      expect(result).toContain('Link');
+    });
+
+    it('collapses accidental quadruple-bold markers but keeps valid emphasis', () => {
+      const tex = '\\begin{document}\n****oops**** and ***fine***\n\\end{document}\n';
+      const result = parseLatexLevel3(tex);
+      expect(result).toContain('**oops**');
+      expect(result).toContain('***fine***');
+    });
+
+    it('consumes nested-brace tabular* preambles instead of leaking the spec', () => {
+      const tex = [
+        '\\begin{document}',
+        '\\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}',
+        'Left & Right \\\\',
+        '\\end{tabular*}',
+        '\\end{document}',
+      ].join('\n');
+      const result = parseLatexLevel3(tex);
+      expect(result).not.toContain('extracolsep');
+      expect(result).not.toMatch(/(^|\n)r /);
+      expect(result).toContain('Left');
+      expect(result).toContain('Right');
     });
   });
 });
