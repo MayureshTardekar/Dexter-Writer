@@ -239,18 +239,25 @@ export async function compileWithLambda(
   lambdaUrl: string
 ): Promise<LatexCompileResult> {
   const t0 = performance.now();
-  notifyStatus('compiling', 40, 'Compiling LaTeX with AWS Lambda…');
+  notifyStatus('compiling', 40, 'Compiling document…');
+
+  // Provide seamless compatibility for pdfTeX primitives (e.g. \pdfgentounicode in Jake's resume)
+  let payloadTex = source;
+  if (source.includes('glyphtounicode') || source.includes('pdfgentounicode')) {
+    const shim = '\\ifx\\pdfglyphtounicode\\undefined\\providecommand{\\pdfglyphtounicode}[2]{}\\fi\\ifx\\pdfgentounicode\\undefined\\newcount\\pdfgentounicode\\fi\n';
+    payloadTex = shim + source;
+  }
 
   const res = await fetch(lambdaUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tex: source }),
+    body: JSON.stringify({ tex: payloadTex }),
   });
 
   const compileMs = Math.round(performance.now() - t0);
 
   if (!res.ok) {
-    let errMsg = `Cloud compilation failed (HTTP ${res.status})`;
+    let errMsg = `Compilation failed (HTTP ${res.status})`;
     try {
       const errJson = await res.json();
       if (errJson.error) errMsg = errJson.error;
@@ -278,7 +285,7 @@ export async function compileWithLambda(
   const pageCountHdr = res.headers.get('X-Page-Count');
   const pages = pageCountHdr ? parseInt(pageCountHdr, 10) : null;
 
-  notifyStatus('ready', 100, `Compiled via AWS Lambda in ${compileMs}ms`);
+  notifyStatus('ready', 100, 'Ready');
   return {
     success: true,
     pdf: pdfBuffer,

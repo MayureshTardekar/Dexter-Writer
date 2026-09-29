@@ -11,7 +11,7 @@ export interface StarterTemplate {
 export const TEMPLATES: StarterTemplate[] = [
   {
     id: 'resume-md',
-    label: 'Resume — ATS (Markdown)',
+    label: 'ATS Resume (.md)',
     mode: 'markdown',
     description: 'Software engineer resume, ATS-friendly',
     content: `# Alex Carter
@@ -47,7 +47,7 @@ Full-Stack Software Engineer | alex.carter@email.com | github.com/alexcarter | l
   },
   {
     id: 'resume-tex',
-    label: 'Resume — ATS (LaTeX)',
+    label: 'ATS Resume (.tex)',
     mode: 'latex',
     description: 'Same resume in LaTeX article class',
     content: `% Dexter Write — ATS Resume (LaTeX)
@@ -91,7 +91,7 @@ AWS Solutions Architect Associate (2023)
   },
   {
     id: 'resume-jake-tex',
-    label: "Resume — Jake's Template (LaTeX)",
+    label: "Jake's Resume (.tex)",
     mode: 'latex',
     description: "Standard CS / Software Engineer resume based on Jake's Resume",
     content: `%-------------------------
@@ -214,7 +214,7 @@ AWS Solutions Architect Associate (2023)
   },
   {
     id: 'paper-tex',
-    label: 'Research Paper (LaTeX)',
+    label: 'Research Paper (.tex)',
     mode: 'latex',
     description: 'Article class with math + bibliography',
     content: `% Dexter Write — Academic Paper
@@ -258,7 +258,7 @@ Structure-aware chunking helps. Future work: citation grounding.
   },
   {
     id: 'resume-typ',
-    label: 'Resume — ATS (Typst)',
+    label: 'ATS Resume (.typ)',
     mode: 'typst',
     description: 'Software engineer resume with instant PDF',
     content: `// Dexter Write — ATS Resume (Typst)
@@ -295,7 +295,7 @@ AWS Solutions Architect Associate (2023)
   },
   {
     id: 'paper-typ',
-    label: 'Research Paper (Typst)',
+    label: 'Research Paper (.typ)',
     mode: 'typst',
     description: 'Article with math, figures and bibliography',
     content: `// Dexter Write — Academic Paper (Typst)
@@ -333,7 +333,7 @@ Structure-aware chunking helps. Future work: citation grounding.
   },
   {
     id: 'api-md',
-    label: 'API Docs (Markdown)',
+    label: 'API Docs (.md)',
     mode: 'markdown',
     description: 'Technical product & API specification',
     content: `# 🪐 Project Nebula — Distributed Semantic Search Engine

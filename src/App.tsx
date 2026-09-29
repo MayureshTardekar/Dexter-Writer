@@ -703,8 +703,8 @@ export default function App() {
         <div className="spacer" />
         <div className="tb-group">
           <select className="tb-select" value={templateId} onChange={(e) => applyTemplateToActive(e.target.value)} aria-label="Load template into current file" title="Load template into current file">
-            <option value="" disabled>Template ▾</option>
-            {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            <option value="" disabled>Templates ▾</option>
+            {TEMPLATES.filter((t) => t.mode === docMode).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
           <select
             className="tb-select"
@@ -855,7 +855,8 @@ export default function App() {
                     onChange={(e) => applyTemplateToActive(e.target.value)}
                     aria-label="Load template"
                   >
-                    {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    <option value="" disabled>Select template ▾</option>
+                    {TEMPLATES.filter((t) => t.mode === docMode).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                   </select>
                 </div>
                 <div className="filetree-content" style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>

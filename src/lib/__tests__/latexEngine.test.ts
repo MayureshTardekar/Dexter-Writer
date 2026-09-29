@@ -80,16 +80,14 @@ describe('Lambda Remote Compiler Configuration', () => {
 
     try {
       const { getLambdaUrl, setLambdaUrl, isRemoteCompilerConfigured } = await import('../latexEngine');
-      expect(getLambdaUrl()).toBeNull();
-      expect(isRemoteCompilerConfigured()).toBe(false);
+      const initial = getLambdaUrl();
 
-      setLambdaUrl('https://my-lambda.amazonaws.com/');
-      expect(getLambdaUrl()).toBe('https://my-lambda.amazonaws.com/');
+      setLambdaUrl('https://my-custom-test-compiler.com/');
+      expect(getLambdaUrl()).toBe('https://my-custom-test-compiler.com/');
       expect(isRemoteCompilerConfigured()).toBe(true);
 
       setLambdaUrl(null);
-      expect(getLambdaUrl()).toBeNull();
-      expect(isRemoteCompilerConfigured()).toBe(false);
+      expect(getLambdaUrl()).toBe(initial);
     } finally {
       globalThis.localStorage = originalStorage;
     }

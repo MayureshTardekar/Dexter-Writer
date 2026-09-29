@@ -233,7 +233,6 @@ function LatexPreview({
   const [error, setError] = useState<string | null>(null);
   const [fullLog, setFullLog] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
-  const [compileMs, setCompileMs] = useState<number | null>(null);
   const [pdfMeta, setPdfMeta] = useState<{ pages: number | null; warnings: string[] } | null>(null);
   const [needsEngine, setNeedsEngine] = useState(false);
   const timer = useRef<number | null>(null);
@@ -259,7 +258,6 @@ function LatexPreview({
         setPdfUrl(res.pdfUrl);
         setError(null);
         setFullLog(res.log || null);
-        setCompileMs(res.compileMs || null);
         setPdfMeta({ pages: res.pages ?? null, warnings: res.warnings ?? [] });
         onPdfReady?.(true, res.pdfUrl);
       } else {
@@ -310,16 +308,24 @@ function LatexPreview({
     return (
       <div className="preview-scroll latex-preview" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
         <div className="typst-status muted small" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px", background: "var(--surface-sunken)", borderBottom: "1px solid var(--border)" }}>
-          <span>
-            {compiling
-              ? (statusMsg || (isRemoteCompilerConfigured() ? "Compiling with AWS Lambda…" : "Compiling pdfLaTeX WASM…"))
-              : `${isRemoteCompilerConfigured() ? "LaTeX Cloud Engine (AWS Lambda)" : "pdfLaTeX WASM (Overleaf Engine)"}${compileMs != null ? ` · ${compileMs}ms` : ""}${pdfMeta?.pages != null ? ` · ${pdfMeta.pages} page${pdfMeta.pages === 1 ? "" : "s"}` : ""}`}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+            {compiling ? (
+              <>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#60a5fa", display: "inline-block" }} />
+                <span>Compiling…</span>
+              </>
+            ) : (
+              <>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                <span>Ready{pdfMeta?.pages != null ? ` · ${pdfMeta.pages} page${pdfMeta.pages === 1 ? "" : "s"}` : ""}</span>
+              </>
+            )}
             {pdfMeta && pdfMeta.warnings.length > 0 && !compiling && (
               <button
                 className="btn xs ghost"
-                style={{ fontSize: 10, padding: "2px 6px", marginLeft: 6, color: "#fbbf24" }}
+                style={{ fontSize: 10, padding: "2px 6px", marginLeft: 4, color: "#fbbf24" }}
                 title={pdfMeta.warnings.join("\n")}
-                onClick={() => setShowLog(true)}
+                onClick={() => setShowLog(!showLog)}
               >
                 ⚠ {pdfMeta.warnings.length}
               </button>
@@ -356,7 +362,7 @@ function LatexPreview({
             {fullLog}
           </pre>
         )}
-        {error && (
+        {error && !pdfUrl && (
           <div style={{ padding: "8px 12px", background: "rgba(239, 68, 68, 0.15)", borderBottom: "1px solid rgba(239, 68, 68, 0.3)", color: "#f87171", fontSize: "11px", fontFamily: "var(--mono)" }}>
             ⚠️ {error}
           </div>
