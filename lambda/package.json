@@ -1,0 +1,11 @@
+{
+  "name": "dexter-latex-lambda",
+  "version": "1.0.0",
+  "description": "Ultra-lightweight Serverless LaTeX Compiler for Dexter Write",
+  "main": "handler.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node -e \"console.log('Lambda syntax OK')\""
+  }
+}

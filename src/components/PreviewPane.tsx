@@ -8,6 +8,7 @@ import "katex/dist/katex.min.css";
 import { latexToReadable, typstToReadable } from "../lib/docUtils";
 import { rehypeSourceLine } from "../lib/rehypeSourceLine";
 import { renderTypstSvg, warmupTypstEngine } from "../lib/typstEngine";
+import { compileLatexPdf, isLatexEngineReady, isRemoteCompilerConfigured, subscribeLatexStatus } from "../lib/latexEngine";
 import type { DocMode } from "../lib/templates";
 import MermaidBlock from "./MermaidBlock";
 
@@ -99,10 +100,10 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
 }
 
 // Markdown / LaTeX rich preview
-function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, articleRef, onSourceJump, zoom = 1.0 }: {
+function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, articleRef, onSourceJump, zoom = 1.0, compact = false }: {
   content: string; theme?: "dark" | "light"; sourceMap?: boolean; allowHtml?: boolean;
   articleRef?: React.RefCallback<HTMLElement>;
-  onSourceJump?: (info: SourceJump) => void; zoom?: number;
+  onSourceJump?: (info: SourceJump) => void; zoom?: number; compact?: boolean;
 }) {
   const rehypePlugins = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,7 +126,7 @@ function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml 
   return (
     <div className="preview-scroll" onDoubleClick={(e) => handlePreviewDblClick(e, sourceMap, onSourceJump)} title="Double-click to jump to source">
       <div className="preview-zoom-wrap" style={{ transform: `scale(${zoom})` }}>
-        <article className="preview-doc" ref={articleRef}>
+        <article className={`preview-doc${compact ? " resume-doc" : ""}`} ref={articleRef}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={rehypePlugins}
@@ -212,34 +213,228 @@ function TypstPreview({ content, onSourceJump, zoom = 1.0 }: { content: string; 
   );
 }
 
-// PDF export via Browser Print API.
-// latex.js cannot handle Jake's template packages (fontawesome5, fancyhdr,
-// titlesec, fullpage, tabularx, etc.) — it crashes with 'setErrorFn' errors.
-// Instead we capture the live rendered preview DOM, apply all its styles,
-// and open a dedicated print window so the user can Save as PDF (Ctrl+P).
+// LaTeX WASM preview (Overleaf-Exact)
+function LatexPreview({
+  content,
+  zoom = 1.0,
+  onPdfReady,
+  compileTrigger,
+  onCompilingChange
+}: {
+  content: string;
+  zoom?: number;
+  onPdfReady?: (ready: boolean, url: string | null) => void;
+  compileTrigger?: number;
+  onCompilingChange?: (compiling: boolean) => void;
+}) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [compiling, setCompiling] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [fullLog, setFullLog] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const [compileMs, setCompileMs] = useState<number | null>(null);
+  const [pdfMeta, setPdfMeta] = useState<{ pages: number | null; warnings: string[] } | null>(null);
+  const [needsEngine, setNeedsEngine] = useState(false);
+  const timer = useRef<number | null>(null);
+  const seq = useRef(0);
+
+  useEffect(() => {
+    return subscribeLatexStatus((_status, _progress, msg) => {
+      if (msg) setStatusMsg(msg);
+    });
+  }, []);
+
+  const doCompile = useCallback(async (src: string) => {
+    if (!src.trim()) return;
+    setCompiling(true);
+    setNeedsEngine(false);
+    setPdfMeta(null);
+    onCompilingChange?.(true);
+    const my = ++seq.current;
+    try {
+      const res = await compileLatexPdf(src);
+      if (seq.current !== my) return;
+      if (res.success && res.pdfUrl) {
+        setPdfUrl(res.pdfUrl);
+        setError(null);
+        setFullLog(res.log || null);
+        setCompileMs(res.compileMs || null);
+        setPdfMeta({ pages: res.pages ?? null, warnings: res.warnings ?? [] });
+        onPdfReady?.(true, res.pdfUrl);
+      } else {
+        setError(res.error || "Compilation failed. Check log for details.");
+        setFullLog(res.log || null);
+        setPdfMeta({ pages: res.pages ?? null, warnings: res.warnings ?? [] });
+        onPdfReady?.(false, null);
+      }
+    } catch (e) {
+      if (seq.current !== my) return;
+      setError(e instanceof Error ? e.message : String(e));
+      onPdfReady?.(false, null);
+    } finally {
+      if (seq.current === my) {
+        setCompiling(false);
+        onCompilingChange?.(false);
+      }
+    }
+  }, [onPdfReady, onCompilingChange]);
+
+  // Debounced compilation on typing — but only once the engine is loaded
+  // or when an AWS Lambda cloud compiler is configured (0 MB download).
+  // The Recompile button / Ctrl+Enter always loads it on demand.
+  useEffect(() => {
+    if (timer.current) window.clearTimeout(timer.current);
+    if (!isLatexEngineReady() && !isRemoteCompilerConfigured()) {
+      setNeedsEngine(true);
+      return;
+    }
+    setNeedsEngine(false);
+    timer.current = window.setTimeout(() => {
+      void doCompile(content);
+    }, 1200);
+    return () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, [content, doCompile]);
+
+  // Immediate compilation on compileTrigger (e.g. Recompile button / Ctrl+Enter)
+  useEffect(() => {
+    if (compileTrigger && compileTrigger > 0) {
+      if (timer.current) window.clearTimeout(timer.current);
+      void doCompile(content);
+    }
+  }, [compileTrigger, content, doCompile]);
+
+  if (pdfUrl) {
+    return (
+      <div className="preview-scroll latex-preview" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+        <div className="typst-status muted small" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 14px", background: "var(--surface-sunken)", borderBottom: "1px solid var(--border)" }}>
+          <span>
+            {compiling
+              ? (statusMsg || (isRemoteCompilerConfigured() ? "Compiling with AWS Lambda…" : "Compiling pdfLaTeX WASM…"))
+              : `${isRemoteCompilerConfigured() ? "LaTeX Cloud Engine (AWS Lambda)" : "pdfLaTeX WASM (Overleaf Engine)"}${compileMs != null ? ` · ${compileMs}ms` : ""}${pdfMeta?.pages != null ? ` · ${pdfMeta.pages} page${pdfMeta.pages === 1 ? "" : "s"}` : ""}`}
+            {pdfMeta && pdfMeta.warnings.length > 0 && !compiling && (
+              <button
+                className="btn xs ghost"
+                style={{ fontSize: 10, padding: "2px 6px", marginLeft: 6, color: "#fbbf24" }}
+                title={pdfMeta.warnings.join("\n")}
+                onClick={() => setShowLog(true)}
+              >
+                ⚠ {pdfMeta.warnings.length}
+              </button>
+            )}
+          </span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <a
+              href={pdfUrl}
+              download="resume.pdf"
+              className="btn xs ghost"
+              style={{ fontSize: 10, padding: "2px 8px", textDecoration: "none" }}
+              title="Download compiled PDF"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: 4 }}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Download PDF
+            </a>
+            {fullLog && (
+              <button
+                className="btn xs ghost"
+                style={{ fontSize: 10, padding: "2px 6px" }}
+                onClick={() => setShowLog(!showLog)}
+              >
+                {showLog ? "Hide Log" : "TeX Log"}
+              </button>
+            )}
+          </div>
+        </div>
+        {showLog && fullLog && (
+          <pre className="typst-diag-list" style={{ maxHeight: 180, overflow: "auto", background: "var(--surface-sunken)", color: "var(--text-secondary)", margin: 0, padding: 8, fontSize: 11 }}>
+            {fullLog}
+          </pre>
+        )}
+        {error && (
+          <div style={{ padding: "8px 12px", background: "rgba(239, 68, 68, 0.15)", borderBottom: "1px solid rgba(239, 68, 68, 0.3)", color: "#f87171", fontSize: "11px", fontFamily: "var(--mono)" }}>
+            ⚠️ {error}
+          </div>
+        )}
+        <div className="preview-zoom-wrap" style={{ transform: `scale(${zoom})`, transformOrigin: "top center", width: "100%", flex: 1, height: "100%", overflow: "auto", padding: "16px" }}>
+          <iframe
+            src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
+            title="LaTeX PDF Preview"
+            style={{
+              width: "100%",
+              minHeight: "1150px",
+              height: "100%",
+              border: "none",
+              background: "#fff",
+              borderRadius: "6px",
+              boxShadow: "0 4px 24px rgba(0,0,0,0.18)"
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="preview-scroll" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {needsEngine && !compiling && (
+        <div className="engine-gate">
+          <h3>Real PDF preview</h3>
+          <p>
+            Compiles with pdfLaTeX (Overleaf-grade output). One-time download of about
+            <strong> 120 MB</strong>, cached offline afterwards. Extra packages fetch
+            on demand only if your document needs them.
+          </p>
+          <button className="btn primary" onClick={() => void doCompile(content)}>
+            Load engine &amp; compile
+          </button>
+        </div>
+      )}
+      <div className="typst-status muted small" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: "var(--surface-sunken)" }}>
+        <div className="spinner" style={{ width: 12, height: 12, border: "2px solid var(--border)", borderTopColor: "var(--primary)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <span>{statusMsg || "Press Recompile for real PDF output."}</span>
+      </div>
+      {error && (
+        <div style={{ padding: "8px 12px", background: "rgba(239, 68, 68, 0.15)", color: "#f87171", fontSize: "11px", fontFamily: "var(--mono)" }}>
+          ⚠️ {error}
+        </div>
+      )}
+      <div className="preview-zoom-wrap" style={{ transform: `scale(${zoom})`, opacity: 0.7, padding: "16px" }}>
+        <article className="preview-doc resume-doc">
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{latexToReadable(content)}</ReactMarkdown>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+// Fallback HTML print preview
 function printPreviewAsPdf(previewDocEl: HTMLElement | null): void {
   if (!previewDocEl) {
-    alert('Preview is empty — type some LaTeX first.');
+    alert("Preview is empty — type some LaTeX first.");
     return;
   }
 
-  // Collect all stylesheets from the current document
   const styleLinks: string[] = [];
   const inlineStyles: string[] = [];
-  document.querySelectorAll('link[rel="stylesheet"]').forEach((el) => {
+  document.querySelectorAll("link[rel=\"stylesheet\"]").forEach((el) => {
     const href = (el as HTMLLinkElement).href;
     if (href) styleLinks.push(`<link rel="stylesheet" href="${href}">`);
   });
-  document.querySelectorAll('style').forEach((el) => {
+  document.querySelectorAll("style").forEach((el) => {
     inlineStyles.push(`<style>${el.textContent}</style>`);
   });
 
-  // Clone the preview article element
   const clone = previewDocEl.cloneNode(true) as HTMLElement;
 
-  const printWindow = window.open('', '_blank', 'width=900,height=700');
+  const printWindow = window.open("", "_blank", "width=900,height=700");
   if (!printWindow) {
-    alert('Pop-up blocked — please allow pop-ups for this site to export PDF.');
+    alert("Pop-up blocked — please allow pop-ups for this site to export PDF.");
     return;
   }
 
@@ -248,8 +443,8 @@ function printPreviewAsPdf(previewDocEl: HTMLElement | null): void {
 <head>
   <meta charset="utf-8">
   <title>Resume — Export PDF</title>
-  ${styleLinks.join('\n')}
-  ${inlineStyles.join('\n')}
+  ${styleLinks.join("\n")}
+  ${inlineStyles.join("\n")}
   <style>
     @page { size: A4; margin: 0; }
     html, body {
@@ -258,7 +453,6 @@ function printPreviewAsPdf(previewDocEl: HTMLElement | null): void {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    /* Override dark-mode canvas; the cloned article already has white bg */
     body { background: #fff !important; }
     .preview-doc {
       box-shadow: none !important;
@@ -275,7 +469,7 @@ function printPreviewAsPdf(previewDocEl: HTMLElement | null): void {
   ${clone.outerHTML}
   <script>
     window.onload = function() { setTimeout(function() { window.print(); }, 400); };
-  <\/script>
+  </script>
 </body>
 </html>`);
   printWindow.document.close();
@@ -286,21 +480,23 @@ export default function PreviewPane({ content, mode, theme, onSourceJump, compil
   content: string; mode: DocMode; theme?: "dark" | "light"; onSourceJump?: (info: SourceJump) => void; compileTrigger?: number;
 }) {
   const [zoom, setZoom] = useState(1.0);
+  const [pdfMode, setPdfMode] = useState(true);
+  const [pdfReady, setPdfReady] = useState(false);
+  const [compilingLatex, setCompilingLatex] = useState(false);
+  const [manualRecompile, setManualRecompile] = useState(0);
 
-  // Ref to the rendered <article class="preview-doc"> element for print capture
+  // Ref to the rendered <article class="preview-doc"> element for print fallback
   const previewDocRef = useRef<HTMLElement | null>(null);
 
-  const compilePdf = useCallback(() => {
-    printPreviewAsPdf(previewDocRef.current);
-  }, []);
+  const isLatex = mode === "latex";
 
-  useEffect(() => {
-    if (compileTrigger && compileTrigger > 0) {
-      if (mode === "latex") {
-        void compilePdf();
-      }
+  const handleRecompile = useCallback(() => {
+    if (isLatex) {
+      setManualRecompile((t) => t + 1);
+    } else {
+      printPreviewAsPdf(previewDocRef.current);
     }
-  }, [compileTrigger, mode, compilePdf]);
+  }, [isLatex]);
 
   const md = useMemo(() => {
     if (mode === "latex") return latexToReadable(content);
@@ -308,16 +504,16 @@ export default function PreviewPane({ content, mode, theme, onSourceJump, compil
     return content;
   }, [content, mode]);
 
-  const isLatex = mode === "latex";
-  const compilingPdf = false;   // print is synchronous — no loading state needed
-  const pdfReady = false;
-  const pdfError: string | null = null;
-
   const zoomBar = (
-    <ZoomBar zoom={zoom} onZoom={setZoom} mode={mode}
-      onCompilePdf={isLatex ? compilePdf : undefined}
-      compilingPdf={compilingPdf} pdfReady={pdfReady} pdfMode={false}
-      onTogglePdf={undefined}
+    <ZoomBar
+      zoom={zoom}
+      onZoom={setZoom}
+      mode={mode}
+      onCompilePdf={handleRecompile}
+      compilingPdf={isLatex ? compilingLatex : false}
+      pdfReady={isLatex ? pdfReady : false}
+      pdfMode={pdfMode}
+      onTogglePdf={isLatex ? () => setPdfMode((p) => !p) : undefined}
     />
   );
 
@@ -325,7 +521,23 @@ export default function PreviewPane({ content, mode, theme, onSourceJump, compil
     return (<>{zoomBar}<TypstPreview content={content} onSourceJump={onSourceJump} zoom={zoom} /></>);
   }
 
+  if (isLatex && pdfMode) {
+    return (
+      <>
+        {zoomBar}
+        <LatexPreview
+          content={content}
+          zoom={zoom}
+          onPdfReady={(ready) => setPdfReady(ready)}
+          onCompilingChange={setCompilingLatex}
+          compileTrigger={(compileTrigger || 0) + manualRecompile}
+        />
+      </>
+    );
+  }
+
   const exact = mode === "markdown";
+  const isResume = mode === "latex" && /\\(resumeItem|resumeSubheading|resumeProjectHeading|begin\{itemize\})/.test(content);
   return (
     <>
       {zoomBar}
@@ -337,6 +549,7 @@ export default function PreviewPane({ content, mode, theme, onSourceJump, compil
         articleRef={(el) => { previewDocRef.current = el; }}
         onSourceJump={onSourceJump}
         zoom={zoom}
+        compact={isResume}
       />
     </>
   );
