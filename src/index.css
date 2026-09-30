@@ -354,6 +354,13 @@ kbd {
 }
 [data-theme="light"] .preview-scroll { background: #c8c8c8; }
 
+.preview-scroll.latex-preview {
+  padding: 0;
+  background: #323639;
+  background-image: none;
+}
+[data-theme="light"] .preview-scroll.latex-preview { background: #d0d0d0; }
+
 /* Zoom scale wrapper */
 .preview-zoom-wrap {
   transform-origin: top center;

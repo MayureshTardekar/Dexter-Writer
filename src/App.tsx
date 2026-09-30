@@ -694,12 +694,14 @@ export default function App() {
             Preview
           </button>
         </div>
-        <button className="btn xs btn-recompile" onClick={triggerRecompile} title="Recompile document (Ctrl+Enter)">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          <span>Recompile</span>
-        </button>
+        {!isVisible('right') && (
+          <button className="btn xs btn-recompile" onClick={triggerRecompile} title="Recompile document (Ctrl+Enter)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            <span>Recompile</span>
+          </button>
+        )}
         <div className="spacer" />
         <div className="tb-group">
           <select
@@ -1042,23 +1044,15 @@ export default function App() {
         {/* Right Pane (Preview) */}
         {isVisible('right') && (
           <section className="pane right" style={maximized ? { flex: 1 } : { width: `${rightPct}%` }}>
-            <div className="pane-head">
-              <span className="pane-title">Preview (PDF)</span>
-              <span className="pane-actions">
-                <button className="btn xs ghost icon-btn" onClick={() => toggleMax('right')} title={maximized === 'right' ? 'Restore split view' : 'Maximize preview'}>
-                  <Icon name={maximized === 'right' ? 'minimize' : 'expand'} size={13} />
-                </button>
-                <button className="btn xs ghost icon-btn" onClick={() => hideSide('right')} title="Hide preview">
-                  <Icon name="chevronsRight" size={13} />
-                </button>
-              </span>
-            </div>
             <PreviewPane
               content={docContent}
               mode={docMode}
               theme={theme}
               onSourceJump={handleSourceJump}
               compileTrigger={recompileSeq}
+              onToggleMax={() => toggleMax('right')}
+              maximized={maximized === 'right'}
+              onHide={() => hideSide('right')}
             />
           </section>
         )}
