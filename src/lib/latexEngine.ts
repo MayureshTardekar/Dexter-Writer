@@ -85,10 +85,12 @@ export function findMissingPackage(log: string): string | null {
 }
 
 const LAMBDA_STORAGE_KEY = 'dexter_latex_lambda_url';
+export const DEFAULT_LATEX_LAMBDA_URL = 'https://qrcz6lt55f2g4qdocjunecepn40kwodf.lambda-url.ap-south-1.on.aws/';
 
 /**
  * Returns the configured AWS Lambda compiler URL.
- * Checks localStorage first, then Vite environment variable `VITE_LATEX_LAMBDA_URL`.
+ * Checks localStorage first, then Vite environment variable `VITE_LATEX_LAMBDA_URL`,
+ * and defaults to the production serverless compiler URL.
  */
 export function getLambdaUrl(): string | null {
   try {
@@ -99,7 +101,7 @@ export function getLambdaUrl(): string | null {
   } catch {}
   const envUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_LATEX_LAMBDA_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
-  return null;
+  return DEFAULT_LATEX_LAMBDA_URL;
 }
 
 /**
@@ -229,6 +231,14 @@ function getCacheKey(source: string, extraFiles?: { path: string; content: strin
 }
 
 let activeBlobUrl: string | null = null;
+
+/** Revokes and cleans up any currently active PDF blob URL to free browser memory. */
+export function revokeActivePdfUrl(): void {
+  if (activeBlobUrl) {
+    URL.revokeObjectURL(activeBlobUrl);
+    activeBlobUrl = null;
+  }
+}
 
 /**
  * Compiles LaTeX source via remote AWS Lambda function.
@@ -414,6 +424,15 @@ export async function compileLatexPdf(
     const firstKey = cache.keys().next().value;
     if (firstKey) cache.delete(firstKey);
   }
+
+  // Prevent caching transient network or compiler errors so retries can succeed
+  promise.then((res) => {
+    if (!res.success) {
+      cache.delete(key);
+    }
+  }).catch(() => {
+    cache.delete(key);
+  });
 
   return promise;
 }

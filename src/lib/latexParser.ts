@@ -382,12 +382,23 @@ export function parseResumeProjectHeading(src: string): string {
 
 // ─── Main Level-3 LaTeX-to-Markdown+HTML transformer ─────────────────────────
 
+const PARSER_CACHE_LIMIT = 16;
+const parserCache = new Map<string, string>();
+
+/** Clears the in-memory Level-3 LaTeX parser cache. */
+export function clearLatexParserCache(): void {
+  parserCache.clear();
+}
+
 /**
  * Main Level-3 LaTeX-to-Markdown transformer.
  * Produces Markdown with embedded HTML for resume-specific layout elements.
  */
 export function parseLatexLevel3(tex: string): string {
   if (!tex || !tex.trim()) return '';
+
+  const cached = parserCache.get(tex);
+  if (cached !== undefined) return cached;
 
   // 1. Remove comments (except escaped \%)
   let s = tex.replace(/(^|[^\\])%.*$/gm, '$1');
@@ -699,5 +710,11 @@ export function parseLatexLevel3(tex: string): string {
   s = s.replace(/^\*{4,}\s*$/gm, '***');
   s = s.replace(/%%MATHBLOCK_(\d+)%%/g, (_m, idx) => mathBlocks[Number(idx)] || '');
 
-  return s.replace(/\n{3,}/g, '\n\n').trim();
+  const output = s.replace(/\n{3,}/g, '\n\n').trim();
+  if (parserCache.size >= PARSER_CACHE_LIMIT) {
+    const oldestKey = parserCache.keys().next().value;
+    if (oldestKey !== undefined) parserCache.delete(oldestKey);
+  }
+  parserCache.set(tex, output);
+  return output;
 }
