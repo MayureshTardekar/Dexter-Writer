@@ -244,7 +244,7 @@ export async function compileWithLambda(
   // Provide seamless compatibility for pdfTeX primitives (e.g. \pdfgentounicode in Jake's resume)
   let payloadTex = source;
   if (source.includes('glyphtounicode') || source.includes('pdfgentounicode')) {
-    const shim = '\\ifx\\pdfglyphtounicode\\undefined\\providecommand{\\pdfglyphtounicode}[2]{}\\fi\\ifx\\pdfgentounicode\\undefined\\newcount\\pdfgentounicode\\fi\n';
+    const shim = '\\ifx\\pdfglyphtounicode\\undefined\\def\\pdfglyphtounicode#1#2{}\\fi\\ifx\\pdfgentounicode\\undefined\\newcount\\pdfgentounicode\\fi\n';
     payloadTex = shim + source;
   }
 

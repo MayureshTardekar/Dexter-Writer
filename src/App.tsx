@@ -215,7 +215,7 @@ export default function App() {
 
   const active = files.find((f) => f.id === activeId) ?? files[0];
   const docContent = active?.content ?? '';
-  const docMode = active?.mode ?? 'markdown';
+  const docMode: DocMode = active ? (modeForName(active.name) || active.mode || 'markdown') : 'markdown';
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -702,9 +702,16 @@ export default function App() {
         </button>
         <div className="spacer" />
         <div className="tb-group">
-          <select className="tb-select" value={templateId} onChange={(e) => applyTemplateToActive(e.target.value)} aria-label="Load template into current file" title="Load template into current file">
-            <option value="" disabled>Templates ▾</option>
-            {TEMPLATES.filter((t) => t.mode === docMode).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          <select
+            className="tb-select"
+            value={docMode}
+            onChange={(e) => switchMode(e.target.value as DocMode)}
+            aria-label="Document format"
+            title="Document format / extension"
+          >
+            <option value="latex">LaTeX (.tex)</option>
+            <option value="typst">Typst (.typ)</option>
+            <option value="markdown">Markdown (.md)</option>
           </select>
           <select
             className="tb-select"

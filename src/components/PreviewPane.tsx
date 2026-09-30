@@ -100,9 +100,8 @@ function ZoomBar({ zoom, onZoom, mode, onCompilePdf, compilingPdf, pdfReady, pdf
 }
 
 // Markdown / LaTeX rich preview
-function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, articleRef, onSourceJump, zoom = 1.0, compact = false }: {
+function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml = false, onSourceJump, zoom = 1.0, compact = false }: {
   content: string; theme?: "dark" | "light"; sourceMap?: boolean; allowHtml?: boolean;
-  articleRef?: React.RefCallback<HTMLElement>;
   onSourceJump?: (info: SourceJump) => void; zoom?: number; compact?: boolean;
 }) {
   const rehypePlugins = useMemo(() => {
@@ -126,7 +125,7 @@ function MarkdownPreview({ content, theme = "dark", sourceMap = true, allowHtml 
   return (
     <div className="preview-scroll" onDoubleClick={(e) => handlePreviewDblClick(e, sourceMap, onSourceJump)} title="Double-click to jump to source">
       <div className="preview-zoom-wrap" style={{ transform: `scale(${zoom})` }}>
-        <article className={`preview-doc${compact ? " resume-doc" : ""}`} ref={articleRef}>
+        <article className={`preview-doc${compact ? " resume-doc" : ""}`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={rehypePlugins}
@@ -419,68 +418,6 @@ function LatexPreview({
   );
 }
 
-// Fallback HTML print preview
-function printPreviewAsPdf(previewDocEl: HTMLElement | null): void {
-  if (!previewDocEl) {
-    alert("Preview is empty — type some LaTeX first.");
-    return;
-  }
-
-  const styleLinks: string[] = [];
-  const inlineStyles: string[] = [];
-  document.querySelectorAll("link[rel=\"stylesheet\"]").forEach((el) => {
-    const href = (el as HTMLLinkElement).href;
-    if (href) styleLinks.push(`<link rel="stylesheet" href="${href}">`);
-  });
-  document.querySelectorAll("style").forEach((el) => {
-    inlineStyles.push(`<style>${el.textContent}</style>`);
-  });
-
-  const clone = previewDocEl.cloneNode(true) as HTMLElement;
-
-  const printWindow = window.open("", "_blank", "width=900,height=700");
-  if (!printWindow) {
-    alert("Pop-up blocked — please allow pop-ups for this site to export PDF.");
-    return;
-  }
-
-  printWindow.document.write(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Resume — Export PDF</title>
-  ${styleLinks.join("\n")}
-  ${inlineStyles.join("\n")}
-  <style>
-    @page { size: A4; margin: 0; }
-    html, body {
-      margin: 0; padding: 0;
-      background: #fff;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    body { background: #fff !important; }
-    .preview-doc {
-      box-shadow: none !important;
-      border-radius: 0 !important;
-      margin: 0 auto !important;
-      padding: 28px 48px 36px !important;
-      max-width: 780px !important;
-      min-height: 100vh;
-      background: #fff !important;
-    }
-  </style>
-</head>
-<body>
-  ${clone.outerHTML}
-  <script>
-    window.onload = function() { setTimeout(function() { window.print(); }, 400); };
-  </script>
-</body>
-</html>`);
-  printWindow.document.close();
-}
-
 // Root export
 export default function PreviewPane({ content, mode, theme, onSourceJump, compileTrigger }: {
   content: string; mode: DocMode; theme?: "dark" | "light"; onSourceJump?: (info: SourceJump) => void; compileTrigger?: number;
@@ -491,18 +428,11 @@ export default function PreviewPane({ content, mode, theme, onSourceJump, compil
   const [compilingLatex, setCompilingLatex] = useState(false);
   const [manualRecompile, setManualRecompile] = useState(0);
 
-  // Ref to the rendered <article class="preview-doc"> element for print fallback
-  const previewDocRef = useRef<HTMLElement | null>(null);
-
-  const isLatex = mode === "latex";
+  const isLatex = mode === "latex" || content.trim().startsWith('\\documentclass') || content.includes('\\begin{document}');
 
   const handleRecompile = useCallback(() => {
-    if (isLatex) {
-      setManualRecompile((t) => t + 1);
-    } else {
-      printPreviewAsPdf(previewDocRef.current);
-    }
-  }, [isLatex]);
+    setManualRecompile((t) => t + 1);
+  }, []);
 
   const md = useMemo(() => {
     if (mode === "latex") return latexToReadable(content);
@@ -552,7 +482,6 @@ export default function PreviewPane({ content, mode, theme, onSourceJump, compil
         theme={theme}
         sourceMap={exact}
         allowHtml={isLatex}
-        articleRef={(el) => { previewDocRef.current = el; }}
         onSourceJump={onSourceJump}
         zoom={zoom}
         compact={isResume}
