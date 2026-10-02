@@ -53,7 +53,7 @@ interface UnifiedToolbarProps {
 }
 
 function UnifiedToolbar({
-  mode,
+  mode: _mode,
   zoom,
   onZoom,
   onCompilePdf,
@@ -182,7 +182,7 @@ function UnifiedToolbar({
         </button>
       )}
 
-      {mode === "latex" && onTogglePdf && (
+      {onTogglePdf && (
         <button
           className={`btn xs ${pdfMode ? "ghost" : "primary"}`}
           onClick={onTogglePdf}
@@ -262,9 +262,10 @@ function MarkdownPreview({
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {onZoom && (
         <UnifiedToolbar
-          mode="markdown"
+          mode={onTogglePdf ? "latex" : "markdown"}
           zoom={zoom}
           onZoom={onZoom}
+          onCompilePdf={onTogglePdf}
           onToggleMax={onToggleMax}
           maximized={maximized}
           onHide={onHide}

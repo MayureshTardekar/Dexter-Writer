@@ -252,10 +252,14 @@ export async function compileWithLambda(
   notifyStatus('compiling', 40, 'Compiling document…');
 
   // Provide seamless compatibility for pdfTeX primitives (e.g. \pdfgentounicode in Jake's resume)
+  // and ensure proper font encoding for Type 1 fonts like Charter under XeTeX
   let payloadTex = source;
   if (source.includes('glyphtounicode') || source.includes('pdfgentounicode')) {
     const shim = '\\ifx\\pdfglyphtounicode\\undefined\\def\\pdfglyphtounicode#1#2{}\\fi\\ifx\\pdfgentounicode\\undefined\\newcount\\pdfgentounicode\\fi\n';
     payloadTex = shim + source;
+  }
+  if (/\\usepackage(\[[^\]]*\])?\{charter\}/.test(payloadTex) && !payloadTex.includes('fontenc')) {
+    payloadTex = payloadTex.replace(/\\usepackage(\[[^\]]*\])?\{charter\}/, '\\usepackage[T1]{fontenc}\n$&');
   }
 
   const res = await fetch(lambdaUrl, {
