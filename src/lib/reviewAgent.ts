@@ -21,7 +21,14 @@ export interface AuditReport {
   summary: string;
   strengths: string[];
   issues: AuditIssue[];
+  matchedKeywords?: string[];
+  missingKeywords?: string[];
+  quantifiableMetricScore?: number;
+  atsDisclaimer?: string;
 }
+
+export const ATS_HONEST_DISCLAIMER =
+  'ATS algorithms vary across Workday, Taleo, Greenhouse, and Lever. This score is a heuristic benchmark based on keyword match, action verbs, and metric density. A high score is a strong foundation but does not guarantee shortlisting, nor does a lower score diminish real-world qualifications.';
 
 export const AUDIT_PRESETS: Array<{ id: AuditPreset; label: string; desc: string }> = [
   {
@@ -46,14 +53,32 @@ export const AUDIT_PRESETS: Array<{ id: AuditPreset; label: string; desc: string
   },
 ];
 
-export function buildAuditPrompt(mode: DocMode, preset: AuditPreset, customGoal?: string): string {
+export function buildAuditPrompt(
+  mode: DocMode,
+  preset: AuditPreset,
+  customGoal?: string,
+  jobDescription?: string,
+): string {
   let criteria = '';
   if (preset === 'resume') {
     criteria = `
 - Check that experience bullets start with strong past-tense action verbs (e.g. Architected, Accelerated, Reduced).
-- Ensure statements include quantifiable metrics/impact (%, $, hours, scale).
+- Ensure statements include quantifiable metrics/impact (%, $, hours, scale). Calculate the approximate percentage of bullet points with concrete metrics as "quantifiableMetricScore".
 - Check for ATS friendliness: avoid multi-column tables and non-standard symbols.
 - Identify weak passive phrasing (e.g. "Responsible for", "Worked on") and propose punchy rewrites.`;
+
+    if (jobDescription && jobDescription.trim()) {
+      criteria += `
+- TARGET JOB DESCRIPTION / REQUIRED SKILLS PROVIDED BY USER:
+"""
+${jobDescription.trim().slice(0, 4000)}
+"""
+- Perform genuine keyword and hard-skill gap analysis against this Target Job Description:
+  * Extract hard skills, frameworks, tools, and requirements from the Job Description.
+  * Identify skills from the Job Description that ARE present in the resume -> return in "matchedKeywords" array.
+  * Identify critical skills or requirements from the Job Description that are MISSING or weak in the resume -> return in "missingKeywords" array (focus on real gaps/kami).
+  * Calibrate the overall "score" genuinely based on how well this resume matches the target Job Description (avoid unrealistic 95%+ scores unless the match is near perfect).`;
+    }
   } else if (preset === 'academic') {
     criteria = `
 - Check LaTeX / Typst mathematical formulas for balanced delimiters ($...$, $$...$$, \\begin{align}, etc.).
@@ -83,9 +108,12 @@ Review Criteria:${criteria}
 Output Requirement:
 Return ONLY a valid JSON object without surrounding commentary or markdown tags (or inside a single \`\`\`json block) adhering to this schema:
 {
-  "score": <number between 0 and 100 representing overall quality>,
+  "score": <number between 0 and 100 representing realistic evaluation>,
   "summary": "<2-3 sentence executive evaluation of the document>",
   "strengths": ["<strength 1>", "<strength 2>", ...],
+  "matchedKeywords": ["<matched skill 1>", "<matched skill 2>", ...],
+  "missingKeywords": ["<missing critical skill / gap / kami 1>", "<missing skill 2>", ...],
+  "quantifiableMetricScore": <number between 0 and 100 representing percentage of bullet points with quantifiable numbers>,
   "issues": [
     {
       "id": "iss-1",
@@ -125,10 +153,11 @@ export async function runDocumentAudit(
   mode: DocMode,
   preset: AuditPreset = 'resume',
   customGoal?: string,
+  jobDescription?: string,
 ): Promise<AuditReport> {
   const lines = content.split('\n');
   const numberedDoc = lines.map((l, i) => `${i + 1}: ${l}`).join('\n');
-  const system = buildAuditPrompt(mode, preset, customGoal);
+  const system = buildAuditPrompt(mode, preset, customGoal, jobDescription);
 
   const turn = await callLlm(
     provider,
@@ -162,6 +191,12 @@ export async function runDocumentAudit(
     score: Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 75))),
     summary: parsed.summary || 'Document audit completed with automated recommendations.',
     strengths: Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 5) : [],
+    matchedKeywords: Array.isArray(parsed.matchedKeywords) ? parsed.matchedKeywords.map(String).slice(0, 15) : undefined,
+    missingKeywords: Array.isArray(parsed.missingKeywords) ? parsed.missingKeywords.map(String).slice(0, 15) : undefined,
+    quantifiableMetricScore: typeof parsed.quantifiableMetricScore === 'number'
+      ? Math.max(0, Math.min(100, Math.round(parsed.quantifiableMetricScore)))
+      : undefined,
+    atsDisclaimer: preset === 'resume' ? ATS_HONEST_DISCLAIMER : undefined,
     issues,
   };
 }

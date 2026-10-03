@@ -56,6 +56,23 @@ describe('Autonomous Document Review Agent', () => {
       const prompt = buildAuditPrompt('markdown', 'general', 'Focus strictly on clarity for beginner engineers');
       expect(prompt).toContain('Focus strictly on clarity for beginner engineers');
     });
+
+    it('injects Job Description and keyword gap criteria when provided for resume preset', () => {
+      const jd = 'Looking for Senior Java Engineer with AWS, Kubernetes, and PostgreSQL experience.';
+      const prompt = buildAuditPrompt('latex', 'resume', undefined, jd);
+      expect(prompt).toContain('TARGET JOB DESCRIPTION');
+      expect(prompt).toContain('Looking for Senior Java Engineer');
+      expect(prompt).toContain('matchedKeywords');
+      expect(prompt).toContain('missingKeywords');
+    });
+  });
+
+  describe('Realistic ATS Disclaimer', () => {
+    it('provides standard transparent disclaimer on ATS algorithms', async () => {
+      const { ATS_HONEST_DISCLAIMER } = await import('../reviewAgent');
+      expect(ATS_HONEST_DISCLAIMER).toContain('ATS algorithms vary');
+      expect(ATS_HONEST_DISCLAIMER).toContain('heuristic benchmark');
+    });
   });
 
   describe('Batch Issue Fix Application Line Ordering', () => {

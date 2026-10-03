@@ -45,6 +45,7 @@ export default function ReviewAgentModal({
     return 'techdoc';
   });
   const [customGoal, setCustomGoal] = useState('');
+  const [jobDescription, setJobDescription] = useState('');
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<AuditReport | null>(null);
   const [issues, setIssues] = useState<AuditIssue[]>([]);
@@ -64,6 +65,7 @@ export default function ReviewAgentModal({
         mode,
         preset,
         customGoal.trim() || undefined,
+        jobDescription.trim() || undefined,
       );
       setReport(res);
       setIssues(res.issues);
@@ -194,11 +196,61 @@ export default function ReviewAgentModal({
               aria-label="Custom Priority"
             />
           </div>
+
+          {preset === 'resume' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="muted small" style={{ fontWeight: 600 }}>Target Job Description (JD) / Keywords:</span>
+                <span className="muted small" style={{ fontSize: '11px' }}>Optional · Used for real keyword gap analysis</span>
+              </div>
+              <textarea
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Paste the target job description or core keywords here (e.g. Senior Java/Spring Boot engineer, AWS, Docker, Kubernetes, microservices, high-throughput)..."
+                rows={3}
+                style={{
+                  width: '100%',
+                  fontSize: '11.5px',
+                  fontFamily: 'inherit',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--border)',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Audit Results View */}
         {report && (
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', paddingRight: '4px' }}>
+            {/* Realistic ATS Disclaimer Banner */}
+            {report.atsDisclaimer && (
+              <div
+                style={{
+                  background: 'rgba(234, 179, 8, 0.08)',
+                  border: '1px solid rgba(234, 179, 8, 0.28)',
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  fontSize: '11.5px',
+                  lineHeight: '1.5',
+                  color: 'var(--text-secondary)',
+                  display: 'flex',
+                  gap: '8px',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <span style={{ fontSize: '14px', lineHeight: 1.2 }}>⚠️</span>
+                <div>
+                  <strong style={{ color: '#eab308' }}>Realistic ATS Disclaimer: </strong>
+                  {report.atsDisclaimer}
+                </div>
+              </div>
+            )}
+
             {/* Score & Summary Banner */}
             <div
               style={{
@@ -246,6 +298,104 @@ export default function ReviewAgentModal({
                 )}
               </div>
             </div>
+
+            {/* Metric & Keyword Breakdown (Kami aur Khubi) */}
+            {(report.matchedKeywords || report.missingKeywords || report.quantifiableMetricScore !== undefined) && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: '10px',
+                }}
+              >
+                {report.quantifiableMetricScore !== undefined && (
+                  <div
+                    style={{
+                      background: 'var(--panel)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>
+                      QUANTIFIABLE METRIC DENSITY
+                    </div>
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: report.quantifiableMetricScore >= 60 ? 'var(--accent2)' : 'var(--danger)' }}>
+                      {report.quantifiableMetricScore}%
+                      <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--muted)', marginLeft: 6 }}>
+                        of bullets contain quantifiable metrics (%, $, scale, ms)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {report.matchedKeywords && report.matchedKeywords.length > 0 && (
+                  <div
+                    style={{
+                      background: 'var(--panel)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      gridColumn: report.quantifiableMetricScore === undefined ? 'span 2' : undefined,
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 600, marginBottom: 6 }}>
+                      ✅ MATCHED SKILLS & KEYWORDS ({report.matchedKeywords.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {report.matchedKeywords.map((kw, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 7px',
+                            background: 'rgba(16, 185, 129, 0.12)',
+                            color: '#10b981',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(16, 185, 129, 0.25)',
+                          }}
+                        >
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {report.missingKeywords && report.missingKeywords.length > 0 && (
+                  <div
+                    style={{
+                      background: 'var(--panel)',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      gridColumn: '1 / -1',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', color: '#f87171', fontWeight: 600, marginBottom: 6 }}>
+                      ❌ MISSING CRITICAL SKILLS & GAPS (Kami / Expected by JD):
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {report.missingKeywords.map((kw, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 7px',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            color: '#f87171',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                          }}
+                        >
+                          + {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Issues Action Bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>

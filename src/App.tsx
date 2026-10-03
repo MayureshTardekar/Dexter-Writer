@@ -10,6 +10,7 @@ import ShortcutsModal from './components/ShortcutsModal';
 import HistoryModal from './components/HistoryModal';
 import CitationsModal from './components/CitationsModal';
 import ReviewAgentModal from './components/ReviewAgentModal';
+import DiffReviewModal from './components/DiffReviewModal';
 import CommandPalette, { type PaletteAction } from './components/CommandPalette';
 import Toasts from './components/Toasts';
 import ModalHeader from './components/ModalHeader';
@@ -64,6 +65,7 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [aiFixProposal, setAiFixProposal] = useState<{ summary: string; before: string; after: string } | null>(null);
   const [citations, setCitations] = useState<CitationEntry[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('dexter-write:citations') || '[]');
@@ -284,8 +286,9 @@ export default function App() {
     else if (showLive) setShowLive(false);
     else if (showMcp) setShowMcp(false);
     else if (showByok) setShowByok(false);
+    else if (aiFixProposal) setAiFixProposal(null);
     else if (paletteOpen) setPaletteOpen(false);
-  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showMcp, showByok, paletteOpen]);
+  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showMcp, showByok, aiFixProposal, paletteOpen]);
 
   // Global shortcuts: palette, save-guard, Esc-to-close.
   useEffect(() => {
@@ -1053,6 +1056,12 @@ export default function App() {
               onToggleMax={() => toggleMax('right')}
               maximized={maximized === 'right'}
               onHide={() => hideSide('right')}
+              onFixProposal={(p) => setAiFixProposal(p)}
+              provider={provider}
+              apiKey={apiKey}
+              model={model}
+              baseUrl={baseUrl}
+              onOpenByok={() => setShowByok(true)}
             />
           </section>
         )}
@@ -1102,6 +1111,23 @@ export default function App() {
           setApiKey={setApiKey}
           saveKey={saveKey}
           onClose={() => setShowByok(false)}
+        />
+      )}
+      {aiFixProposal && (
+        <DiffReviewModal
+          summary={aiFixProposal.summary}
+          before={aiFixProposal.before}
+          after={aiFixProposal.after}
+          language={docMode === 'latex' ? 'latex' : docMode === 'typst' ? 'typst' : 'markdown'}
+          mode={docMode}
+          theme={theme}
+          onAccept={(finalContent) => {
+            setDocContent(finalContent);
+            setAiFixProposal(null);
+            triggerRecompile();
+            toast('Fix applied! Recompiling document…', 'success', 2500);
+          }}
+          onClose={() => setAiFixProposal(null)}
         />
       )}
       {showMcp && (

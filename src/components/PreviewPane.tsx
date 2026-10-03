@@ -9,6 +9,8 @@ import { latexToReadable, typstToReadable } from "../lib/docUtils";
 import { rehypeSourceLine } from "../lib/rehypeSourceLine";
 import { renderTypstSvg, warmupTypstEngine } from "../lib/typstEngine";
 import { compileLatexPdf, isLatexEngineReady, isRemoteCompilerConfigured, subscribeLatexStatus } from "../lib/latexEngine";
+import { fixLatexError } from "../lib/latexFixer";
+import { toast } from "../lib/toast";
 import type { DocMode } from "../lib/templates";
 import MermaidBlock from "./MermaidBlock";
 
@@ -419,6 +421,12 @@ function LatexPreview({
   onHide,
   pdfMode,
   onTogglePdf,
+  onFixProposal,
+  provider,
+  apiKey,
+  model,
+  baseUrl,
+  onOpenByok,
 }: {
   content: string;
   zoom?: number;
@@ -432,6 +440,12 @@ function LatexPreview({
   onHide?: () => void;
   pdfMode?: boolean;
   onTogglePdf?: () => void;
+  onFixProposal?: (proposal: { summary: string; before: string; after: string }) => void;
+  provider?: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  onOpenByok?: () => void;
 }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
@@ -441,8 +455,49 @@ function LatexPreview({
   const [showLog, setShowLog] = useState(false);
   const [pdfMeta, setPdfMeta] = useState<{ pages: number | null; warnings: string[] } | null>(null);
   const [needsEngine, setNeedsEngine] = useState(false);
+  const [fixing, setFixing] = useState(false);
   const timer = useRef<number | null>(null);
   const seq = useRef(0);
+
+  const handleFixWithAi = useCallback(async () => {
+    if (!content.trim() || !error || fixing) return;
+    setFixing(true);
+    toast("Analyzing compilation error with AI…", "info", 2500);
+
+    try {
+      const res = await fixLatexError({
+        content,
+        error,
+        fullLog,
+        provider,
+        apiKey,
+        model,
+        baseUrl,
+      });
+
+      if (!res.success) {
+        if (res.needsKey) {
+          toast(res.error || "Please set up your AI key in settings (BYOK)", "error", 3500);
+          onOpenByok?.();
+        } else {
+          toast(res.error || "AI could not fix this error", "error", 3500);
+        }
+        return;
+      }
+
+      if (res.fixedCode) {
+        onFixProposal?.({
+          summary: `Fix LaTeX Error: ${error.slice(0, 50)}`,
+          before: content,
+          after: res.fixedCode,
+        });
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Fix request failed", "error", 3500);
+    } finally {
+      setFixing(false);
+    }
+  }, [content, error, fixing, fullLog, provider, apiKey, model, baseUrl, onOpenByok, onFixProposal]);
 
   useEffect(() => {
     return subscribeLatexStatus((_status, _progress, msg) => {
@@ -535,10 +590,60 @@ function LatexPreview({
         </pre>
       )}
 
-      {/* 3. Error message (only if PDF failed to render) */}
-      {error && !pdfUrl && (
-        <div style={{ padding: "8px 12px", background: "rgba(239, 68, 68, 0.15)", borderBottom: "1px solid rgba(239, 68, 68, 0.3)", color: "#f87171", fontSize: "11px", fontFamily: "var(--mono)" }}>
-          ⚠️ {error}
+      {/* 3. Error message with Fix with AI */}
+      {error && (
+        <div
+          style={{
+            padding: "8px 12px",
+            background: "rgba(239, 68, 68, 0.15)",
+            borderBottom: "1px solid rgba(239, 68, 68, 0.3)",
+            color: "#f87171",
+            fontSize: "11px",
+            fontFamily: "var(--mono)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            zIndex: 5,
+          }}
+        >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+            ⚠️ {error}
+          </span>
+          {onFixProposal && (
+            <button
+              className="btn xs primary"
+              onClick={() => void handleFixWithAi()}
+              disabled={fixing}
+              style={{
+                fontSize: 10,
+                padding: "2px 8px",
+                height: "22px",
+                flexShrink: 0,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 4,
+                cursor: fixing ? "wait" : "pointer",
+              }}
+              title="Analyze compiler log and generate fix with AI"
+            >
+              {fixing ? (
+                <>
+                  <span style={{ display: "inline-block" }}>⏳</span>
+                  <span>Fixing…</span>
+                </>
+              ) : (
+                <>
+                  <span>🪄</span>
+                  <span>Fix with AI</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       )}
 
@@ -596,6 +701,12 @@ export default function PreviewPane({
   onToggleMax,
   maximized,
   onHide,
+  onFixProposal,
+  provider,
+  apiKey,
+  model,
+  baseUrl,
+  onOpenByok,
 }: {
   content: string;
   mode: DocMode;
@@ -605,6 +716,12 @@ export default function PreviewPane({
   onToggleMax?: () => void;
   maximized?: boolean;
   onHide?: () => void;
+  onFixProposal?: (proposal: { summary: string; before: string; after: string }) => void;
+  provider?: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  onOpenByok?: () => void;
 }) {
   const [zoom, setZoom] = useState(1.0);
   const [pdfMode, setPdfMode] = useState(true);
@@ -653,6 +770,12 @@ export default function PreviewPane({
         onHide={onHide}
         pdfMode={pdfMode}
         onTogglePdf={() => setPdfMode(false)}
+        onFixProposal={onFixProposal}
+        provider={provider}
+        apiKey={apiKey}
+        model={model}
+        baseUrl={baseUrl}
+        onOpenByok={onOpenByok}
       />
     );
   }
