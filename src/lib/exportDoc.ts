@@ -43,8 +43,43 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6p
 </body></html>`;
 }
 
-export function doExport(kind: ExportKind, content: string, mode: DocMode): void {
+export function resolveExportFilename(
+  kind: ExportKind,
+  docName?: string,
+  stamp = new Date().toISOString().slice(0, 10),
+): string {
+  const stem = docName?.trim()
+    ? docName.replace(/\.[^/.]+$/, '')
+    : `document-${stamp}`;
+
+  switch (kind) {
+    case 'pdf':
+    case 'typst-pdf':
+      return `${stem}.pdf`;
+    case 'tex':
+      return `${stem}.tex`;
+    case 'md':
+      return `${stem}.md`;
+    case 'txt':
+      return `${stem}.txt`;
+    case 'html':
+      return `${stem}.html`;
+    case 'typ':
+      return `${stem}.typ`;
+    case 'zip':
+      return `dexter-write-project-${stamp}.zip`;
+    default:
+      return `${stem}.txt`;
+  }
+}
+
+export function doExport(kind: ExportKind, content: string, mode: DocMode, docName?: string): void {
   const stamp = new Date().toISOString().slice(0, 10);
+  const filename = resolveExportFilename(kind, docName, stamp);
+  const stem = docName?.trim()
+    ? docName.replace(/\.[^/.]+$/, '')
+    : `document-${stamp}`;
+
   if (kind === 'pdf') {
     if (mode === 'latex') {
       void (async () => {
@@ -55,7 +90,7 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode): void
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `resume-${stamp}.pdf`;
+          a.download = filename;
           document.body.appendChild(a);
           a.click();
           a.remove();
@@ -72,23 +107,23 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode): void
     return;
   }
   if (kind === 'tex') {
-    downloadFile(`dexter-write-${stamp}.tex`, content, 'text/x-tex;charset=utf-8');
+    downloadFile(filename, content, 'text/x-tex;charset=utf-8');
     return;
   }
   if (kind === 'md') {
-    downloadFile(`dexter-write-${stamp}.md`, content, 'text/markdown;charset=utf-8');
+    downloadFile(filename, content, 'text/markdown;charset=utf-8');
     return;
   }
   if (kind === 'txt') {
-    downloadFile(`dexter-write-${stamp}.txt`, stripToPlainText(content, mode), 'text/plain;charset=utf-8');
+    downloadFile(filename, stripToPlainText(content, mode), 'text/plain;charset=utf-8');
     return;
   }
   if (kind === 'html') {
-    downloadFile(`dexter-write-${stamp}.html`, buildStandaloneHtml('Dexter Write Export', content), 'text/html;charset=utf-8');
+    downloadFile(filename, buildStandaloneHtml(stem, content), 'text/html;charset=utf-8');
     return;
   }
   if (kind === 'typ') {
-    downloadFile(`dexter-write-${stamp}.typ`, content, 'text/plain;charset=utf-8');
+    downloadFile(filename, content, 'text/plain;charset=utf-8');
     return;
   }
   if (kind === 'typst-pdf') {
@@ -99,7 +134,7 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode): void
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `dexter-write-${stamp}.pdf`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         a.remove();

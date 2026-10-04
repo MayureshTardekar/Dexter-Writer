@@ -52,6 +52,7 @@ interface UnifiedToolbarProps {
   onHide?: () => void;
   pdfMode?: boolean;
   onTogglePdf?: () => void;
+  fileName?: string;
 }
 
 function UnifiedToolbar({
@@ -71,6 +72,7 @@ function UnifiedToolbar({
   onHide,
   pdfMode,
   onTogglePdf,
+  fileName,
 }: UnifiedToolbarProps) {
   function stepZoom(dir: 1 | -1) {
     const cur = ZOOM_STEPS.indexOf(zoom);
@@ -159,10 +161,10 @@ function UnifiedToolbar({
       {pdfUrl && (
         <a
           href={pdfUrl}
-          download="resume.pdf"
+          download={fileName?.trim() ? `${fileName.replace(/\.[^/.]+$/, "")}.pdf` : "document.pdf"}
           className="btn xs ghost icon-btn"
           style={{ height: "22px", padding: "0 6px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}
-          title="Download PDF"
+          title={`Download ${fileName?.trim() ? `${fileName.replace(/\.[^/.]+$/, "")}.pdf` : "PDF"}`}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -427,6 +429,7 @@ function LatexPreview({
   model,
   baseUrl,
   onOpenByok,
+  fileName,
 }: {
   content: string;
   zoom?: number;
@@ -446,6 +449,7 @@ function LatexPreview({
   model?: string;
   baseUrl?: string;
   onOpenByok?: () => void;
+  fileName?: string;
 }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
@@ -581,6 +585,7 @@ function LatexPreview({
         onHide={onHide}
         pdfMode={pdfMode}
         onTogglePdf={onTogglePdf}
+        fileName={fileName}
       />
 
       {/* 2. Optional TeX Log Dropdown */}
@@ -707,6 +712,7 @@ export default function PreviewPane({
   model,
   baseUrl,
   onOpenByok,
+  fileName,
 }: {
   content: string;
   mode: DocMode;
@@ -722,6 +728,7 @@ export default function PreviewPane({
   model?: string;
   baseUrl?: string;
   onOpenByok?: () => void;
+  fileName?: string;
 }) {
   const [zoom, setZoom] = useState(1.0);
   const [pdfMode, setPdfMode] = useState(true);
@@ -776,6 +783,7 @@ export default function PreviewPane({
         model={model}
         baseUrl={baseUrl}
         onOpenByok={onOpenByok}
+        fileName={fileName}
       />
     );
   }

@@ -53,7 +53,6 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem(LS_THEME) as 'dark' | 'light') || 'dark');
   const [files, setFiles] = useState<ProjectFile[]>(() => loadProject().files);
   const [activeId, setActiveId] = useState<string>(() => loadProject().activeId);
-  const [templateId, setTemplateId] = useState('resume-md');
   const [provider, setProvider] = useState<string>(() => localStorage.getItem('dexter-write:provider') || 'gemini');
   const [model, setModel] = useState(() => localStorage.getItem('dexter-write:model') || 'gemini-2.0-flash');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('dexter-write:baseUrl') || 'http://localhost:11434/v1');
@@ -385,7 +384,6 @@ export default function App() {
   }
 
   const applyTemplateToActive = useCallback((id: string) => {
-    setTemplateId(id);
     const t = getTemplate(id);
     const aid = activeIdRef.current;
     const sess = liveRef.current;
@@ -642,7 +640,7 @@ export default function App() {
         id: `export-${e.kind}`, group: 'Export', label: e.label, icon: 'download',
         run: () => {
           if (e.kind === 'zip') exportProjectZip(filesRef.current);
-          else doExport(e.kind, docContent, docMode);
+          else doExport(e.kind, docContent, docMode, active?.name);
           toast('Export started', 'success', 2000);
         },
       });
@@ -859,18 +857,6 @@ export default function App() {
                     </button>
                   </span>
                 </div>
-                <div className="template-picker-row">
-                  <span className="muted small">Template:</span>
-                  <select
-                    className="tb-select"
-                    value={templateId}
-                    onChange={(e) => applyTemplateToActive(e.target.value)}
-                    aria-label="Load template"
-                  >
-                    <option value="" disabled>Select template ▾</option>
-                    {TEMPLATES.filter((t) => t.mode === docMode).map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                  </select>
-                </div>
                 <div className="filetree-content" style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
                   {files.map((f) => (
                     <div
@@ -1049,6 +1035,7 @@ export default function App() {
           <section className="pane right" style={maximized ? { flex: 1 } : { width: `${rightPct}%` }}>
             <PreviewPane
               content={docContent}
+              fileName={active?.name}
               mode={docMode}
               theme={theme}
               onSourceJump={handleSourceJump}
