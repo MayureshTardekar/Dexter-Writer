@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense, type MouseEvent as RMouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -13,6 +13,9 @@ import { fixLatexError } from "../lib/latexFixer";
 import { toast } from "../lib/toast";
 import type { DocMode } from "../lib/templates";
 import MermaidBlock from "./MermaidBlock";
+
+// Clickable PDF (SyncTeX inverse search) loads pdfjs only when opened.
+const SyncTexPdfView = lazy(() => import("./SyncTexPdfView"));
 
 export interface SourceJump {
   line?: number;
@@ -52,6 +55,13 @@ interface UnifiedToolbarProps {
   onHide?: () => void;
   pdfMode?: boolean;
   onTogglePdf?: () => void;
+  syncAvailable?: boolean;
+  syncMode?: boolean;
+  onToggleSync?: () => void;
+  autoCompile?: boolean;
+  onToggleAutoCompile?: () => void;
+  autoDelayMs?: number;
+  onChangeDelay?: (ms: number) => void;
   fileName?: string;
 }
 
@@ -72,8 +82,35 @@ function UnifiedToolbar({
   onHide,
   pdfMode,
   onTogglePdf,
+  syncAvailable,
+  syncMode,
+  onToggleSync,
+  autoCompile,
+  onToggleAutoCompile,
+  autoDelayMs,
+  onChangeDelay,
   fileName,
 }: UnifiedToolbarProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close the compile menu on outside click / Escape. The timer defers the
+  // document listener past the opening click (the toggle also stops
+  // propagation as a second guard).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    const t = window.setTimeout(() => document.addEventListener('click', close), 0);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
   function stepZoom(dir: 1 | -1) {
     const cur = ZOOM_STEPS.indexOf(zoom);
     const next = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, cur + dir))];
@@ -95,19 +132,60 @@ function UnifiedToolbar({
         flexShrink: 0,
       }}
     >
-      {/* 1. Primary Recompile Button (Overleaf style) */}
-      <button
-        className={`btn xs btn-recompile ${compiling ? "compiling" : ""}`}
-        onClick={onCompilePdf}
-        disabled={compiling}
-        title="Recompile document (Ctrl+Enter)"
-        style={{ height: "24px", padding: "0 10px", fontSize: "11px" }}
-      >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="5 3 19 12 5 21 5 3" />
-        </svg>
-        <span>{compiling ? "Compiling…" : "Recompile"}</span>
-      </button>
+      {/* 1. Primary Recompile Button (Overleaf style) + auto-compile menu */}
+      <span className="compile-split">
+        <button
+          className={`btn xs btn-recompile ${compiling ? "compiling" : ""}`}
+          onClick={onCompilePdf}
+          disabled={compiling}
+          title="Recompile document (Ctrl+Enter)"
+          style={{ height: "24px", padding: "0 10px", fontSize: "11px", borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRight: "none" }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          <span>{compiling ? "Compiling…" : "Recompile"}</span>
+        </button>
+        {onToggleAutoCompile && (
+          <button
+            className="btn xs btn-recompile"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((v) => !v);
+            }}
+            disabled={compiling}
+            title="Auto-compile options"
+            aria-label="Auto-compile options"
+            aria-expanded={menuOpen}
+            style={{ height: "24px", padding: "0 6px", fontSize: "11px", borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
+        {menuOpen && onToggleAutoCompile && (
+          <div className="compile-menu" onClick={(e) => e.stopPropagation()} role="menu" aria-label="Auto-compile options">
+            <button className="compile-menu-item" onClick={() => { onToggleAutoCompile(); }} role="menuitemcheckbox" aria-checked={!!autoCompile}>
+              <span className={`menu-check${autoCompile ? " on" : ""}`}>{autoCompile ? "✓" : ""}</span>
+              Auto-compile on typing
+            </button>
+            <div className="compile-menu-label">Debounce delay</div>
+            {[800, 1500, 3000].map((ms) => (
+              <button
+                key={ms}
+                className={`compile-menu-item${autoDelayMs === ms ? " active" : ""}`}
+                onClick={() => onChangeDelay?.(ms)}
+                role="menuitemradio"
+                aria-checked={autoDelayMs === ms}
+              >
+                <span className="menu-check">{autoDelayMs === ms ? "✓" : ""}</span>
+                {(ms / 1000).toFixed(1).replace(/\.0$/, "")}s
+              </button>
+            ))}
+          </div>
+        )}
+      </span>
 
       {/* 2. Silent Status Indicator */}
       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: "11px", color: "var(--muted)", marginLeft: 2 }}>
@@ -194,6 +272,17 @@ function UnifiedToolbar({
           style={{ height: "20px", fontSize: 10, padding: "0 5px" }}
         >
           {pdfMode ? "Rich" : "PDF"}
+        </button>
+      )}
+
+      {syncAvailable && onToggleSync && (
+        <button
+          className={`btn xs ${syncMode ? "primary" : "ghost"}`}
+          onClick={onToggleSync}
+          title={syncMode ? "Back to plain PDF view" : "Clickable PDF — click any line to jump to source"}
+          style={{ height: "20px", fontSize: 10, padding: "0 5px" }}
+        >
+          {syncMode ? "🔗 Click" : "Click"}
         </button>
       )}
 
@@ -430,6 +519,7 @@ function LatexPreview({
   baseUrl,
   onOpenByok,
   fileName,
+  onSourceJump,
 }: {
   content: string;
   zoom?: number;
@@ -450,8 +540,12 @@ function LatexPreview({
   baseUrl?: string;
   onOpenByok?: () => void;
   fileName?: string;
+  onSourceJump?: (info: SourceJump) => void;
 }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
+  const [syncTex, setSyncTex] = useState<Uint8Array | null>(null);
+  const [syncView, setSyncView] = useState(false);
   const [compiling, setCompiling] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -460,8 +554,40 @@ function LatexPreview({
   const [pdfMeta, setPdfMeta] = useState<{ pages: number | null; warnings: string[] } | null>(null);
   const [needsEngine, setNeedsEngine] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [autoCompile, setAutoCompile] = useState(() => {
+    try {
+      return localStorage.getItem('dexter-write:auto-compile') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [autoDelayMs, setAutoDelayMs] = useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem('dexter-write:auto-delay-ms') || '1200', 10);
+      return [800, 1200, 1500, 3000].includes(v) ? v : 1200;
+    } catch {
+      return 1200;
+    }
+  });
   const timer = useRef<number | null>(null);
   const seq = useRef(0);
+
+  const toggleAutoCompile = useCallback(() => {
+    setAutoCompile((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem('dexter-write:auto-compile', next ? '1' : '0');
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const changeAutoDelay = useCallback((ms: number) => {
+    setAutoDelayMs(ms);
+    try {
+      localStorage.setItem('dexter-write:auto-delay-ms', String(ms));
+    } catch { /* ignore */ }
+  }, []);
 
   const handleFixWithAi = useCallback(async () => {
     if (!content.trim() || !error || fixing) return;
@@ -521,6 +647,8 @@ function LatexPreview({
       if (seq.current !== my) return;
       if (res.success && res.pdfUrl) {
         setPdfUrl(res.pdfUrl);
+        setPdfData(res.pdf ?? null);
+        setSyncTex(res.synctex ?? null);
         setError(null);
         setFullLog(res.log || null);
         setPdfMeta({ pages: res.pages ?? null, warnings: res.warnings ?? [] });
@@ -545,6 +673,8 @@ function LatexPreview({
 
   useEffect(() => {
     if (timer.current) window.clearTimeout(timer.current);
+    // Manual mode: never compile on typing — Recompile / Ctrl+Enter only.
+    if (!autoCompile) return;
     if (!isLatexEngineReady() && !isRemoteCompilerConfigured()) {
       setNeedsEngine(true);
       return;
@@ -552,11 +682,11 @@ function LatexPreview({
     setNeedsEngine(false);
     timer.current = window.setTimeout(() => {
       void doCompile(content);
-    }, 1200);
+    }, autoDelayMs);
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
     };
-  }, [content, doCompile]);
+  }, [content, doCompile, autoCompile, autoDelayMs]);
 
   useEffect(() => {
     if (compileTrigger && compileTrigger > 0) {
@@ -574,6 +704,10 @@ function LatexPreview({
         onZoom={onZoom}
         onCompilePdf={onRecompile || (() => void doCompile(content))}
         compiling={compiling}
+        autoCompile={autoCompile}
+        onToggleAutoCompile={toggleAutoCompile}
+        autoDelayMs={autoDelayMs}
+        onChangeDelay={changeAutoDelay}
         statusText={compiling ? "Compiling…" : pdfMeta?.pages != null ? `Ready · ${pdfMeta.pages} page${pdfMeta.pages === 1 ? "" : "s"}` : statusMsg || "Ready"}
         pdfUrl={pdfUrl}
         pageCount={pdfMeta?.pages}
@@ -585,6 +719,9 @@ function LatexPreview({
         onHide={onHide}
         pdfMode={pdfMode}
         onTogglePdf={onTogglePdf}
+        syncAvailable={!!syncTex && !!pdfData}
+        syncMode={syncView}
+        onToggleSync={() => setSyncView((v) => !v)}
         fileName={fileName}
       />
 
@@ -652,8 +789,22 @@ function LatexPreview({
         </div>
       )}
 
-      {/* 4. Full-Bleed PDF Preview Iframe (Overleaf Fit-Width) */}
+      {/* 4. Full-Bleed PDF Preview (iframe default, clickable SyncTeX view on toggle) */}
       {pdfUrl ? (
+        syncView && pdfData ? (
+          <div style={{ flex: 1, width: "100%", height: "100%", overflow: "auto", position: "relative", background: "#323639" }}>
+            <Suspense
+              fallback={<div className="muted small" style={{ padding: 16 }}>Loading clickable view…</div>}
+            >
+              <SyncTexPdfView
+                pdfData={pdfData}
+                synctex={syncTex}
+                zoom={zoom}
+                onJump={(line) => onSourceJump?.({ line, text: "" })}
+              />
+            </Suspense>
+          </div>
+        ) : (
         <div style={{ flex: 1, width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "#323639" }}>
           <iframe
             key={`${pdfUrl}-${zoom}`}
@@ -672,6 +823,7 @@ function LatexPreview({
             }}
           />
         </div>
+        )
       ) : (
         <div style={{ flex: 1, overflow: "auto" }}>
           {needsEngine && !compiling && (
@@ -784,6 +936,7 @@ export default function PreviewPane({
         baseUrl={baseUrl}
         onOpenByok={onOpenByok}
         fileName={fileName}
+        onSourceJump={onSourceJump}
       />
     );
   }

@@ -11,6 +11,8 @@ export interface LatexCompileResult {
   pages?: number | null;
   /** Deduplicated interesting log lines (overfull boxes, warnings, errors). */
   warnings?: string[];
+  /** Raw .synctex.gz bytes (engine always compiles with -synctex=1). */
+  synctex?: Uint8Array;
 }
 
 export interface TexLogSummary {
@@ -244,6 +246,21 @@ export function revokeActivePdfUrl(): void {
  * Compiles LaTeX source via remote AWS Lambda function.
  * Returns the compiled PDF as a blob URL with page count and timings.
  */
+/**
+ * True when a remote compile failure is infrastructure (HTTP status, timeout,
+ * unreachable host) rather than a genuine LaTeX syntax error. TeX logs carry
+ * `! ` error lines / "Output written" markers — those mean the document
+ * itself failed and a local retry would fail identically, so they are
+ * returned as-is instead of triggering a 120MB fallback download.
+ */
+export function isRemoteInfraFailure(errorMsg?: string): boolean {
+  if (!errorMsg) return true;
+  if (/^! /m.test(errorMsg)) return false;
+  if (/Output written on/i.test(errorMsg)) return false;
+  if (/Transcript written on/i.test(errorMsg)) return false;
+  return true;
+}
+
 export async function compileWithLambda(
   source: string,
   lambdaUrl: string
@@ -329,10 +346,13 @@ export async function compileLatexPdf(
       try {
         const remoteRes = await compileWithLambda(source, lambdaUrl);
         if (remoteRes.success) return remoteRes;
-        // If compilation failed with actual LaTeX syntax errors, return immediately
-        if (remoteRes.error && !remoteRes.error.includes('Failed to fetch') && !remoteRes.error.includes('NetworkError')) {
+        // Genuine LaTeX syntax errors come back as TeX logs — return those
+        // directly. Anything else (HTTP 4xx/5xx, timeouts) falls through to
+        // the local WASM engine below.
+        if (!isRemoteInfraFailure(remoteRes.error)) {
           return remoteRes;
         }
+        notifyStatus('loading', 20, 'Cloud compiler rejected the request — falling back to local WASM…');
       } catch (err) {
         console.warn('AWS Lambda compiler network error, falling back to local WASM:', err);
         notifyStatus('loading', 20, 'Cloud compiler unreachable. Falling back to local WASM…');
@@ -391,6 +411,7 @@ export async function compileLatexPdf(
           compileMs,
           pages: summary.pages,
           warnings: summary.warnings,
+          synctex: res.synctex,
         };
       }
 

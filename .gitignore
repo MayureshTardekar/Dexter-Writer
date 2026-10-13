@@ -25,3 +25,8 @@ dist-ssr
 
 public/core/
 .env
+
+# Personal documents
+resume.tex
+*.tex
+*.pdf

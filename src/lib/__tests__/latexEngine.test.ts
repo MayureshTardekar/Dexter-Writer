@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTexLog, findMissingPackage, isLatexEngineReady } from '../latexEngine';
+import { parseTexLog, findMissingPackage, isLatexEngineReady, isRemoteInfraFailure } from '../latexEngine';
 
 const SAMPLE_LOG = `This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022)
 entering extended mode
@@ -91,6 +91,23 @@ describe('Lambda Remote Compiler Configuration', () => {
     } finally {
       globalThis.localStorage = originalStorage;
     }
+  });
+});
+
+describe('isRemoteInfraFailure — fallback routing', () => {
+  it('treats HTTP/network failures as infrastructure (fall back to local)', () => {
+    expect(isRemoteInfraFailure('Compilation failed (HTTP 422)')).toBe(true);
+    expect(isRemoteInfraFailure('Compilation failed (HTTP 500)')).toBe(true);
+    expect(isRemoteInfraFailure('Failed to fetch')).toBe(true);
+    expect(isRemoteInfraFailure('NetworkError when attempting to fetch resource.')).toBe(true);
+    expect(isRemoteInfraFailure('')).toBe(true);
+    expect(isRemoteInfraFailure(undefined)).toBe(true);
+  });
+
+  it('treats TeX logs as genuine syntax errors (do NOT waste a download)', () => {
+    expect(isRemoteInfraFailure('! Undefined control sequence.\nl.42 \\foo')).toBe(false);
+    expect(isRemoteInfraFailure('Output written on x.pdf (1 page, 1 bytes).')).toBe(false);
+    expect(isRemoteInfraFailure('Transcript written on x.log.')).toBe(false);
   });
 });
 

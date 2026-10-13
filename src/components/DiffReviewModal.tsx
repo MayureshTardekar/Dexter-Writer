@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import { applyHunks, computeHunks, hunkLabel } from '../lib/lineDiff';
 import { registerTypstLanguage } from '../lib/monacoTypst';
+import { registerLatexLanguage } from '../lib/monacoLatex';
 import { DEXTER_DARK_THEME, DEXTER_LIGHT_THEME, MONACO_FONT, registerDexterThemes } from '../lib/monacoTheme';
 import ModalHeader from './ModalHeader';
 import PreviewPane from './PreviewPane';
@@ -61,9 +62,10 @@ export default function DiffReviewModal({ summary, before, after, language, mode
               theme={theme === 'dark' ? DEXTER_DARK_THEME : DEXTER_LIGHT_THEME}
               beforeMount={(monaco) => {
                 registerTypstLanguage(monaco);
+                registerLatexLanguage(monaco);
                 registerDexterThemes(monaco);
               }}
-              options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 12.5, wordWrap: 'on', scrollBeyondLastLine: false }}
+              options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 12.5, lineHeight: 20, bracketPairColorization: { enabled: true }, wordWrap: 'on', scrollBeyondLastLine: false }}
             />
           </div>
           ) : (

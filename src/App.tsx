@@ -524,7 +524,8 @@ export default function App() {
   }
 
   function handleSourceJump(info: SourceJump) {
-    if (docMode === 'markdown' && info.line) {
+    // Exact line numbers (markdown source-map, SyncTeX PDF clicks) jump directly.
+    if (info.line) {
       jumpToLine(info.line);
       return;
     }
