@@ -154,8 +154,8 @@ f(x) = \\sum_{i=1}^d w_i x_i + b
 \\hypersetup{colorlinks=true,urlcolor=blue}
 \\pagestyle{empty}
 \\begin{center}
-{\\Huge \\textbf{Mayuresh Tardekar}} \\\\[4pt]
-Mumbai, India
+{\\Huge \\textbf{John Doe}} \\\\[4pt]
+San Francisco, CA
 \\end{center}
 \\section{Education}
 Body text.
@@ -166,8 +166,8 @@ Body text.
       expect(result).not.toContain('colorlinks');
       expect(result).not.toContain('empty');
       expect(result).not.toContain('titlerule');
-      expect(result).toContain('Mayuresh Tardekar');
-      expect(result).toContain('Mumbai, India');
+      expect(result).toContain('John Doe');
+      expect(result).toContain('San Francisco, CA');
       expect(result).toContain('<h2 class="resume-section">Education</h2>');
       expect(result).toContain('Body text.');
     });
@@ -197,12 +197,12 @@ Body text.
 
 \\begin{document}
 \\begin{center}
-    \\textbf{\\Huge \\scshape Mayuresh Tardekar} \\\\
-    \\small Mumbai, India $|$ +91-8828334158 $|$ \\href{mailto:test@test.com}{\\underline{test@test.com}}
+    \\textbf{\\Huge \\scshape John Doe} \\\\
+    \\small San Francisco, CA $|$ +1 (555) 010-0000 $|$ \\href{mailto:test@test.com}{\\underline{test@test.com}}
 \\end{center}
 
 \\section{Education}
-\\resumeSubheading{Sardar Patel Institute of Technology}{Mumbai, India}{MCA}{2025 -- 2027}
+\\resumeSubheading{State University of Technology}{San Francisco, CA}{MCA}{2025 -- 2027}
 
 \\end{document}
 `;
@@ -215,9 +215,9 @@ Body text.
       expect(result).not.toMatch(/^ *- r /m);
       expect(result).not.toMatch(/^- document$/m);
       expect(result).toContain('resume-subheading');
-      expect(result).toContain('Mayuresh Tardekar');
-      expect(result).toContain('Mumbai, India');
-      expect(result).toContain('Sardar Patel Institute of Technology');
+      expect(result).toContain('John Doe');
+      expect(result).toContain('San Francisco, CA');
+      expect(result).toContain('State University of Technology');
       expect(result).toContain('2025 – 2027');
       expect(result).toContain('<h2 class="resume-section">Education</h2>');
       expect(result).toContain('<a href="mailto:test@test.com">test@test.com</a>');

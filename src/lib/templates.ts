@@ -166,46 +166,46 @@ AWS Solutions Architect Associate (2023)
 \\begin{document}
 
 \\begin{center}
-    \\textbf{\\Huge \\scshape Mayuresh Tardekar} \\\\ \\vspace{3pt}
-    \\small Mumbai, India $|$ +91-8828334158 $|$ \\href{mailto:mayurtardekar1205@gmail.com}{\\underline{mayurtardekar1205@gmail.com}} \\\\
-    \\href{https://linkedin.com/in/mayuresh-tardekar}{\\underline{linkedin.com/in/mayuresh-tardekar}} $|$
-    \\href{https://github.com/mayuresh-tardekar}{\\underline{github.com/mayuresh-tardekar}}
+    \\textbf{\\Huge \\scshape Your Name} \\\\ \\vspace{3pt}
+    \\small City, State $|$ +1 (555) 123-4567 $|$ \\href{mailto:your.email@example.com}{\\underline{your.email@example.com}} \\\\
+    \\href{https://linkedin.com/in/yourusername}{\\underline{linkedin.com/in/yourusername}} $|$
+    \\href{https://github.com/yourusername}{\\underline{github.com/yourusername}}
 \\end{center}
 
 \\section{Education}
   \\resumeItemListStart
     \\resumeSubheading
-      {Sardar Patel Institute of Technology (SPIT)}{Mumbai, India}
-      {Master of Computer Applications (MCA)}{2025 -- 2027}
+      {University Name}{City, State}
+      {Degree / Field of Study}{2022 -- 2026}
     \\resumeSubheading
-      {Mumbai University}{Mumbai, India}
-      {Bachelor of Science in Information Technology (B.Sc. IT) -- CGPA: 7.77}{2021 -- 2024}
+      {College Name}{City, State}
+      {Relevant Degree / Honors}{2018 -- 2022}
   \\resumeItemListEnd
 
 \\section{Technical Skills}
  \\begin{itemize}[leftmargin=0.15in, label={}]
     \\small{\\item{
-     \\textbf{Languages}{: Java, Python, TypeScript, JavaScript, SQL, C++} \\\\
-     \\textbf{Frameworks \\& Libs}{: Spring Boot, React, Node.js, Express, FastAPI, Tailwind CSS} \\\\
-     \\textbf{Cloud \\& Databases}{: PostgreSQL, Redis, Supabase, Docker, Git, pgvector, Linux} \\\\
-     \\textbf{Core Concepts}{: Distributed Systems, REST APIs, RAG, Microservices, Data Structures}
+     \\textbf{Languages}{: Python, TypeScript, JavaScript, SQL, C++, Java} \\\\
+     \\textbf{Frameworks \\& Libraries}{: React, Node.js, Express, FastAPI, Tailwind CSS} \\\\
+     \\textbf{Tools \\& Databases}{: PostgreSQL, Redis, Docker, Git, Linux, AWS} \\\\
+     \\textbf{Core Competencies}{: REST APIs, Distributed Systems, Data Structures, System Design}
     }}
  \\end{itemize}
 
 \\section{Projects}
     \\resumeItemListStart
       \\resumeProjectHeading
-          {\\textbf{ForgeAgent} $|$ \\emph{RAG, Supabase Edge Functions, PostgreSQL, pgvector}}{2026}
+          {\\textbf{Project Name} $|$ \\emph{React, TypeScript, Node.js, PostgreSQL}}{2026}
           \\resumeItemListStart
-            \\resumeItem{Architected a multi-tenant AI chatbot platform enabling automated document ingestion and vector semantic search with p99 retrieval under 180ms.}
-            \\resumeItem{Implemented hybrid retrieval combining dense vector embeddings with full-text search, increasing context accuracy by 34\\%.}
-            \\resumeItem{Engineered an embeddable low-latency JavaScript widget with real-time streaming support over WebSockets.}
+            \\resumeItem{Built a scalable web platform handling user authentication, data management, and real-time updates.}
+            \\resumeItem{Implemented efficient database querying and indexing, improving API response times.}
+            \\resumeItem{Designed responsive modern user interface with reusable component architecture.}
           \\resumeItemListEnd
       \\resumeProjectHeading
-          {\\textbf{ChainSight} $|$ \\emph{Spring Boot, PostgreSQL, Redis, Web3j, Docker}}{2026}
+          {\\textbf{Secondary Project} $|$ \\emph{Python, FastAPI, Redis, Docker}}{2025}
           \\resumeItemListStart
-            \\resumeItem{Engineered a high-throughput blockchain analytics pipeline indexing 10,000+ events/sec into time-series PostgreSQL tables.}
-            \\resumeItem{Designed restart-safe asynchronous block ingestion using Redis queues, reducing event processing lag by 50\\%.}
+            \\resumeItem{Developed automated data processing pipeline with error handling and logging.}
+            \\resumeItem{Integrated background task queue for reliable asynchronous job execution.}
           \\resumeItemListEnd
     \\resumeItemListEnd
 

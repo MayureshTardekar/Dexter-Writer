@@ -1357,6 +1357,100 @@ ul.resume-item-list li {
   padding: 8px;
 }
 
+/* ============ Document Preview Skeleton Loading ============ */
+.doc-skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px;
+  min-height: 100%;
+  box-sizing: border-box;
+  background: var(--bg-alt, #161821);
+  position: relative;
+}
+
+.doc-skeleton-sheet {
+  width: min(100%, 640px);
+  min-height: 800px;
+  background: var(--panel, #12151c);
+  border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  padding: 44px 40px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="light"] .doc-skeleton-wrap {
+  background: #f1f5f9;
+}
+
+[data-theme="light"] .doc-skeleton-sheet {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.doc-skeleton-bar {
+  background: var(--panel3, rgba(255, 255, 255, 0.07));
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="light"] .doc-skeleton-bar {
+  background: #eef2f6;
+}
+
+.doc-skeleton-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
+}
+
+[data-theme="light"] .doc-skeleton-bar::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.6),
+    transparent
+  );
+}
+
+@keyframes skeletonShimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.doc-skeleton-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--panel2, rgba(22, 25, 34, 0.9));
+  border: 1px solid var(--accent, #6366f1);
+  border-radius: 20px;
+  color: var(--text, #e2e8f0);
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  margin-bottom: 16px;
+  backdrop-filter: blur(8px);
+}
+
 /* ============ print ============ */
 @media print {
   .toolbar, .pane.left, .pane.center, .statusbar, .toc, .toc-wrap, .pane-head, .divider, .toasts, .rail, .activity-bar { display: none !important; }

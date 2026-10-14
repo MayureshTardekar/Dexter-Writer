@@ -498,6 +498,59 @@ function TypstPreview({
   );
 }
 
+function DocumentSkeleton({ compiling, statusText, zoom = 1.0 }: { compiling?: boolean; statusText?: string; zoom?: number }) {
+  return (
+    <div className="doc-skeleton-wrap" style={{ transform: zoom !== 1.0 ? `scale(${zoom})` : undefined, transformOrigin: 'top center' }}>
+      {compiling && (
+        <div className="doc-skeleton-status">
+          <span className="spinner" style={{ width: 13, height: 13, borderWidth: 2 }} />
+          <span>{statusText || 'Compiling document with XeTeX…'}</span>
+        </div>
+      )}
+      <div className="doc-skeleton-sheet">
+        {/* Header Shimmers */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <div className="doc-skeleton-bar" style={{ width: 220, height: 26, borderRadius: 5 }} />
+          <div className="doc-skeleton-bar" style={{ width: 340, height: 12, borderRadius: 4 }} />
+        </div>
+        <div className="doc-skeleton-bar" style={{ width: '100%', height: 1, opacity: 0.4, margin: '4px 0 12px' }} />
+
+        {/* Section 1 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="doc-skeleton-bar" style={{ width: 110, height: 16, borderRadius: 4 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+            <div className="doc-skeleton-bar" style={{ width: 180, height: 13, borderRadius: 3 }} />
+            <div className="doc-skeleton-bar" style={{ width: 80, height: 13, borderRadius: 3 }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div className="doc-skeleton-bar" style={{ width: 240, height: 11, borderRadius: 3, opacity: 0.8 }} />
+            <div className="doc-skeleton-bar" style={{ width: 70, height: 11, borderRadius: 3, opacity: 0.8 }} />
+          </div>
+        </div>
+
+        {/* Section 2 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+          <div className="doc-skeleton-bar" style={{ width: 130, height: 16, borderRadius: 4 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+            <div className="doc-skeleton-bar" style={{ width: 200, height: 13, borderRadius: 3 }} />
+            <div className="doc-skeleton-bar" style={{ width: 60, height: 13, borderRadius: 3 }} />
+          </div>
+          <div className="doc-skeleton-bar" style={{ width: '92%', height: 10, borderRadius: 3, opacity: 0.75 }} />
+          <div className="doc-skeleton-bar" style={{ width: '96%', height: 10, borderRadius: 3, opacity: 0.75 }} />
+          <div className="doc-skeleton-bar" style={{ width: '84%', height: 10, borderRadius: 3, opacity: 0.75 }} />
+        </div>
+
+        {/* Section 3 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+          <div className="doc-skeleton-bar" style={{ width: 90, height: 16, borderRadius: 4 }} />
+          <div className="doc-skeleton-bar" style={{ width: '95%', height: 11, borderRadius: 3, opacity: 0.8 }} />
+          <div className="doc-skeleton-bar" style={{ width: '88%', height: 11, borderRadius: 3, opacity: 0.8 }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // LaTeX WASM / Cloud preview (Overleaf-Exact)
 function LatexPreview({
   content,
@@ -837,11 +890,11 @@ function LatexPreview({
               </button>
             </div>
           )}
-          <div className="preview-zoom-wrap" style={{ transform: `scale(${zoom})`, opacity: 0.7, padding: "16px" }}>
-            <article className="preview-doc resume-doc">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{latexToReadable(content)}</ReactMarkdown>
-            </article>
-          </div>
+          <DocumentSkeleton
+            compiling={compiling}
+            statusText={statusMsg || (compiling ? "Compiling document with XeTeX…" : "Preparing preview…")}
+            zoom={zoom}
+          />
         </div>
       )}
     </div>
