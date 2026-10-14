@@ -294,6 +294,53 @@ kbd {
 .shimmer-bar { height: 100%; width: 40%; border-radius: 4px; background: var(--brand-grad); animation: shimmerBar 1.4s ease-in-out infinite; }
 .bubble-copy { position: absolute; top: 5px; right: 5px; opacity: 0; }
 .bubble:hover .bubble-copy { opacity: 1; }
+
+/* ---- AI chat: rendered markdown, live tool rows, notices ---- */
+/* .bubble-text uses pre-wrap for raw user text; markdown must reset it. */
+.chat-md { white-space: normal; }
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md p { margin: 0 0 8px; line-height: 1.55; }
+.chat-md ul, .chat-md ol { margin: 0 0 8px; padding-left: 20px; }
+.chat-md li { margin: 2px 0; }
+.chat-md li > p { margin: 0; }
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4 { margin: 11px 0 6px; font-weight: 700; line-height: 1.3; font-size: 13px; }
+.chat-md h1 { font-size: 15px; }
+.chat-md h2 { font-size: 14px; }
+.chat-md code { font-family: var(--mono); font-size: 12px; background: var(--panel3); border: 1px solid var(--border-soft); border-radius: 4px; padding: 1px 4px; }
+.chat-md pre { margin: 0 0 8px; padding: 9px 10px; overflow-x: auto; background: var(--panel3); border: 1px solid var(--border-soft); border-radius: var(--radius); }
+.chat-md pre code { background: none; border: 0; padding: 0; font-size: 11.5px; line-height: 1.55; }
+.chat-md blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--accent); color: var(--muted); }
+.chat-md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 0 0 8px; font-size: 12px; }
+.chat-md th, .chat-md td { border: 1px solid var(--border-soft); padding: 4px 7px; text-align: left; }
+.chat-md th { background: var(--panel3); font-weight: 600; }
+.chat-md a { color: var(--accent); }
+.chat-md hr { border: 0; border-top: 1px solid var(--border-soft); margin: 10px 0; }
+
+.caret { display: inline-block; width: 7px; color: var(--accent); animation: blink 1s steps(1) infinite; }
+.caret::after { content: '▍'; }
+
+.tool-rows { display: flex; flex-direction: column; gap: 3px; margin-bottom: 7px; }
+.tool-row { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 500; color: var(--muted); min-width: 0; }
+.tool-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--muted-dim); }
+.tool-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-row.running .tool-dot { background: var(--accent); animation: pulseDot 1s ease-in-out infinite; }
+.tool-row.running .tool-label { color: var(--text); }
+.tool-row.done .tool-dot { background: var(--accent2); }
+.tool-row.error .tool-dot { background: var(--danger); }
+.tool-row.error .tool-label { color: var(--danger); }
+
+.chat-notice {
+  display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted);
+  background: var(--panel3); border: 1px solid var(--border-soft); border-radius: 6px;
+  padding: 3px 7px; margin-bottom: 6px;
+}
+.bubble.failed { border-color: var(--danger); }
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(.65); }
+}
 .chat-input { display: flex; gap: 7px; padding: 10px 12px; border-top: 1px solid var(--border); flex: 0 0 auto; }
 .chat-input input { flex: 1; min-width: 0; }
 .chat-hint { padding: 0 12px 8px; color: var(--muted-dim); font-size: 11px; }
@@ -777,6 +824,56 @@ ul.resume-item-list li {
 .statusbar .stat:last-child { border-right: 0; }
 .offline-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent2); margin-right: 5px; vertical-align: 1px; }
 .offline-dot.off { background: var(--warn); }
+
+/* AI ghost-text toggle in the status bar */
+.statusbar .stat-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 100%; border: 0; border-right: 1px solid var(--border-soft);
+  background: none; color: var(--muted); cursor: pointer;
+  font-family: var(--mono); font-size: 11px; white-space: nowrap;
+}
+.statusbar .stat-btn:hover { background: var(--panel3); color: var(--text); }
+.statusbar .stat-btn.on { color: var(--accent); }
+.statusbar .stat-btn.on svg { filter: drop-shadow(0 0 4px var(--accent)); }
+
+/* ---- Ctrl+I inline edit widget (Monaco content widget) ---- */
+.ai-inline-edit {
+  /* Bounded in both px and vw: the center pane can be narrow when the file
+     tree and preview are both open, so vw alone would overflow it. */
+  width: min(520px, 88vw);
+  min-width: 0; max-width: 88vw; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 9px; margin: 4px 0;
+  background: var(--panel2, var(--panel)); color: var(--text);
+  border: 1px solid var(--accent); border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+  font-family: var(--font); font-size: 12.5px;
+  z-index: 40;
+}
+.ai-inline-edit .aie-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ai-inline-edit .aie-input {
+  flex: 1 1 180px; min-width: 0; height: 28px; padding: 0 9px;
+  background: var(--panel3); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: var(--font); font-size: 12.5px; outline: none;
+}
+.ai-inline-edit .aie-input:focus { border-color: var(--accent); }
+.ai-inline-edit .aie-input:disabled { opacity: .6; }
+.ai-inline-edit .aie-status { min-height: 0; line-height: 1.4; }
+.ai-inline-edit .aie-preview {
+  display: none; max-height: min(220px, 34vh); overflow: auto; margin: 0;
+  padding: 8px 9px; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--panel3); border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+}
+.ai-inline-edit .aie-foot { display: none; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.ai-inline-edit[data-phase='running'] .aie-status { color: var(--accent); }
+/* Both side panes open on a laptop screen leaves the editor quite narrow. */
+@media (max-width: 1180px) {
+  .ai-inline-edit { width: min(420px, 86vw); }
+  .ai-inline-edit .aie-preview { max-height: min(160px, 28vh); }
+}
 
 /* ============ modals (Raycast-style) ============ */
 .modal-backdrop {

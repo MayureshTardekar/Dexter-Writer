@@ -1,28 +1,23 @@
-import { VIRTUAL_MCP_TOOL_DEFS } from './virtualMcp';
-import { extractLatexMacros } from './latexParser';
-import { loadCustomProviders, customKeyName } from './customProviders';
+/**
+ * Compatibility layer over the agent engine in `src/lib/agent/`.
+ *
+ * The transports, prompt builder and provider registry all moved into
+ * `agent/` (see AI_AGENT_ROADMAP.md §3). This file keeps the old public
+ * surface alive so existing importers need no changes:
+ *   - App.tsx, ByokModal, ReviewAgentModal → PROVIDERS, resolveProvider
+ *   - reviewAgent.ts, latexFixer.ts        → callLlm
+ *   - aiGateway.test.ts                    → buildSystemPrompt, detectDocMacros
+ *
+ * New code should import from `./agent/...` directly.
+ */
 
-export type ProviderId = 'gemini' | 'nvidia' | 'groq' | 'openrouter' | 'openai' | 'anthropic' | 'ollama';
+import { streamProvider } from './agent/providers';
+import type { AgentMessage, ToolDef } from './agent/types';
 
-export interface ProviderInfo {
-  id: string;
-  label: string;
-  defaultModel: string;
-  defaultBaseUrl?: string;
-  needsKey: boolean;
-  keyName: string;
-  help: string;
-}
-
-export const PROVIDERS: ProviderInfo[] = [
-  { id: 'gemini', label: 'Google Gemini', defaultModel: 'gemini-2.0-flash', needsKey: true, keyName: 'gemini', help: 'Google AI Studio key (AIza…).' },
-  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: 'meta/muse-glimmer-30b', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Free endpoints at build.nvidia.com' },
-  { id: 'groq', label: 'Groq Cloud (Ultra Fast)', defaultModel: 'llama-3.3-70b-versatile', defaultBaseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyName: 'groq', help: 'Groq API key (gsk_…). Free ultra-fast 300 t/s at console.groq.com' },
-  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'meta-llama/llama-3.3-70b-instruct', defaultBaseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyName: 'openrouter', help: 'OpenRouter key (sk-or-…). Access 200+ models at openrouter.ai' },
-  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBaseUrl: 'https://api.openai.com/v1', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },
-  { id: 'anthropic', label: 'Anthropic Claude', defaultModel: 'claude-3-5-sonnet-latest', needsKey: true, keyName: 'anthropic', help: 'sk-ant-… key. Note: browsers may hit CORS; use Ollama if blocked.' },
-  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.1', defaultBaseUrl: 'http://localhost:11434/v1', needsKey: false, keyName: 'ollama-base', help: 'Local endpoint, e.g. http://localhost:11434/v1. Run with OLLAMA_ORIGINS=*' },
-];
+export { PROVIDERS, resolveProvider } from './agent/providers/registry';
+export type { ProviderId, ProviderInfo } from './agent/providers/registry';
+export { buildSystemPrompt, detectDocMacros, numberLines, buildDocContext } from './agent/prompt';
+export type { PromptOptions } from './agent/prompt';
 
 export interface LlmToolCall {
   name: string;
@@ -40,239 +35,24 @@ export interface ChatHistoryItem {
   text: string;
 }
 
-/** Extra (external MCP) tool definitions merged into every provider call. */
+/** Extra (external MCP) tool definitions merged into the call. */
 export interface ExtraToolDef {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
 }
 
-function openAiTools(extra: ExtraToolDef[] = []): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
-  const base: Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> = VIRTUAL_MCP_TOOL_DEFS.map((t) => ({
-    type: 'function' as const,
-    function: { name: t.name, description: t.description, parameters: t.parameters },
-  }));
-  for (const t of extra) base.push({ type: 'function' as const, function: { name: t.name, description: t.description, parameters: t.parameters } });
-  return base;
-}
-
-function anthropicTools(extra: ExtraToolDef[] = []): Array<{ name: string; description: string; input_schema: unknown }> {
-  const base: Array<{ name: string; description: string; input_schema: unknown }> = VIRTUAL_MCP_TOOL_DEFS.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
-  for (const t of extra) base.push({ name: t.name, description: t.description, input_schema: t.parameters });
-  return base;
-}
-
-function geminiTools(extra: ExtraToolDef[] = []) {
-  return [
-    {
-      functionDeclarations: [
-        ...VIRTUAL_MCP_TOOL_DEFS.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters as unknown })),
-        ...extra.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters as unknown })),
-      ],
-    },
-  ];
-}
-
-function safeJsonParse(s: string): Record<string, unknown> {
-  try {
-    return JSON.parse(s || '{}');
-  } catch {
-    return {};
-  }
-}
-
-async function callOpenAiCompatible(
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-  system: string,
-  history: ChatHistoryItem[],
-  userText: string,
-  extra: ExtraToolDef[] = [],
-): Promise<LlmTurn> {
-  let effectiveBaseUrl = baseUrl;
-  // If running in browser on localhost/127.0.0.1, route NVIDIA NIM through the local Vite proxy to eliminate CORS
-  if (
-    typeof window !== 'undefined' &&
-    /^(localhost|127\.0\.0\.1)/.test(window.location.hostname) &&
-    effectiveBaseUrl.includes('integrate.api.nvidia.com')
-  ) {
-    effectiveBaseUrl = effectiveBaseUrl.replace(/https?:\/\/integrate\.api\.nvidia\.com/, '/api/nvidia');
-  }
-
-  const url = effectiveBaseUrl.replace(/\/$/, '') + '/chat/completions';
-  const messages: Array<{ role: string; content: string }> = [
-    { role: 'system', content: system },
-    ...history.map((h) => ({ role: h.role, content: h.text })),
-    { role: 'user', content: userText },
-  ];
-  const tools = openAiTools(extra);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-  };
-  if (baseUrl.includes('openrouter.ai')) {
-    headers['HTTP-Referer'] = 'https://github.com/MayureshTardekar/Dexter-Writer';
-    headers['X-Title'] = 'Dexter Write';
-  }
-
-  const makeBody = (includeTools: boolean) =>
-    JSON.stringify({
-      model,
-      messages,
-      ...(includeTools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-      temperature: 0.4,
-    });
-
-  let res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: makeBody(true),
-  });
-
-  // Gracefully fallback if the model doesn't support tools (e.g. DeepSeek-R1 or reasoning models on NIM)
-  if (!res.ok && res.status === 400 && tools.length > 0) {
-    const errPreview = await res.text();
-    if (/tool|function/i.test(errPreview)) {
-      res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: makeBody(false),
-      });
-    } else {
-      throw new Error(`OpenAI-compatible error ${res.status}: ${errPreview}`.slice(0, 500));
-    }
-  }
-
-  if (!res.ok) throw new Error(`OpenAI-compatible error ${res.status}: ${await res.text()}`.slice(0, 500));
-  const data = await res.json();
-  const msg = data.choices?.[0]?.message ?? {};
-  const toolCalls: LlmToolCall[] = (msg.tool_calls ?? []).map((tc: { function: { name: string; arguments: string }; id: string }, i: number) => ({
-    name: tc.function?.name ?? '',
-    args: safeJsonParse(tc.function?.arguments ?? '{}'),
-    id: tc.id ?? `call-${i}`,
-  }));
-  const text = (typeof msg.content === 'string' && msg.content)
-    ? msg.content
-    : (typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '');
-  return { text, toolCalls };
-}
-
-async function callAnthropic(apiKey: string, model: string, system: string, history: ChatHistoryItem[], userText: string, extra: ExtraToolDef[] = []): Promise<LlmTurn> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1500,
-      system,
-      messages: [...history.map((h) => ({ role: h.role, content: h.text })), { role: 'user', content: userText }],
-      tools: anthropicTools(extra),
-    }),
-  });
-  if (!res.ok) throw new Error(`Anthropic error ${res.status}: ${await res.text()}`.slice(0, 500));
-  const data = await res.json();
-  const text = (data.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text: string }) => b.text).join('\n');
-  const toolCalls: LlmToolCall[] = (data.content ?? [])
-    .filter((b: { type: string }) => b.type === 'tool_use')
-    .map((b: { name: string; input: Record<string, unknown>; id: string }) => ({ name: b.name, args: b.input ?? {}, id: b.id }));
-  return { text: text ?? '', toolCalls };
-}
-
-async function callGemini(apiKey: string, model: string, system: string, history: ChatHistoryItem[], userText: string, extra: ExtraToolDef[] = []): Promise<LlmTurn> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const contents = [
-    ...history.map((h) => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })),
-    { role: 'user', parts: [{ text: userText }] },
-  ];
-  const payload = JSON.stringify({ system_instruction: { parts: [{ text: system }] }, contents, tools: geminiTools(extra) });
-  let res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: payload,
-  });
-
-  // Handle temporary 503 (high demand) or 429 (rate spike) with a quick retry
-  if (res.status === 503 || res.status === 429) {
-    await new Promise((resolve) => setTimeout(resolve, 1800));
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-    });
-  }
-
-  if (!res.ok) {
-    const errText = await res.text();
-    let msg = `Gemini error ${res.status}: ${errText}`.slice(0, 500);
-    if (res.status === 503) {
-      msg = `Gemini server is temporarily busy (503). Please retry in a few seconds, or switch model in BYOK.`;
-    }
-    throw new Error(msg);
-  }
-  const data = await res.json();
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
-  const text = parts.filter((p: { text?: string }) => p.text).map((p: { text: string }) => p.text).join('\n');
-  const toolCalls: LlmToolCall[] = parts
-    .filter((p: { functionCall?: { name: string; args: Record<string, unknown> } }) => p.functionCall)
-    .map((p: { functionCall: { name: string; args: Record<string, unknown> } }, i: number) => ({ name: p.functionCall.name, args: p.functionCall.args ?? {}, id: `gemini-${i}` }));
-  return { text: text ?? '', toolCalls };
-}
-
 /**
- * Detect user-defined LaTeX macros (\newcommand, \renewcommand, \def) in the
- * document so the prompt can tell the model to REUSE them — instead of
- * hardcoding template macros (e.g. Jake's \resumeItem) that may not exist,
- * which would break compilation. Returns names WITHOUT the backslash.
+ * One-shot, non-agentic completion. Drains the streaming provider into a
+ * single {@link LlmTurn}.
+ *
+ * Behaviour note: unlike the previous implementation, this no longer attaches
+ * the virtual document tools automatically — only the `extra` tools you pass.
+ * Every current caller (`reviewAgent`, `latexFixer`) wants plain text or JSON
+ * back, and silently offering document tools made them liable to return a tool
+ * call instead of an answer. For agentic work use `runAgent` from
+ * `./agent/loop` instead.
  */
-export function detectDocMacros(content: string, docMode: string): string[] {
-  if (docMode !== 'latex' || !content) return [];
-  try {
-    const { macros } = extractLatexMacros(content);
-    return [...macros.keys()].slice(0, 20);
-  } catch {
-    return [];
-  }
-}
-
-export function buildSystemPrompt(
-  docMode: string,
-  outlineText: string,
-  docExcerpt: string,
-  externalHint = '',
-  fileName = '',
-  extraContext = '',
-): string {
-  const targetDesc = fileName ? `the user's active file "${fileName}" (${docMode} format)` : `the user's active ${docMode} document`;
-  const modeRules =
-    docMode === 'latex'
-      ? `- LaTeX hygiene (non-negotiable): braces must balance — every { must close; NEVER put enumitem options like [nosep,leftmargin=*] or spacing commands (\\vspace, \\hspace) into body text; reuse the document's existing macros and environments; keep \\\\ line breaks clean (never \\\\4pt); math stays inside $...$ or $$...$$.`
-      : docMode === 'typst'
-        ? `- Typst hygiene: = / == headings, $...$ math, - list items; NEVER invent #directives or functions; reuse what the document already uses.`
-        : `- Markdown hygiene: keep headings (#), GFM tables, and $...$ / $$...$$ math valid; never break fenced code blocks.`;
-  return `You are Dexter Write, an AI document editor with direct MCP tools over ${targetDesc}. Work like a careful IDE assistant, not a chatbot.
-Workflow (follow strictly):
-1. If the user asks a QUESTION, answer it in chat first. Only call tools when they asked for an edit.
-2. READ BEFORE YOU WRITE: before any insert/replace, call read_document_content on the exact line range you plan to change (or get_document_outline first for large docs). Never assume what is in the file.
-3. Be SURGICAL: prefer one replace_lines over the smallest range that covers the change. Use insert_content only for genuinely new blocks. NEVER re-insert the preamble (\\documentclass, #set page, imports) and NEVER duplicate a section that already exists — update it in place.
-4. One coherent edit per turn; batch related hunks instead of many tiny calls.
-5. RESUME & WRITING EXCELLENCE: If editing or writing resume bullets, use Google's X-Y-Z formula (Accomplished [X] measured by [Y] by doing [Z]). Start each bullet with a strong action verb (Engineered, Architected, Shipped, Automated, Optimized). Never produce generic, passive filler.
-${modeRules}
-${extraContext ? `${extraContext}\n` : ''}${externalHint ? `- External MCP tools are available (prefixed mcp_). Use them to fetch live data (repos, search, citations), then write results into the document with the document tools.\n${externalHint}` : '- No external MCP servers connected.'}
-- If no tool is needed, answer concisely in chat.
-- After tools, summarize what changed with line numbers.
-Document outline:
-${outlineText || '(empty)'}
-
-CURRENT DOCUMENT FULL CONTEXT (${fileName || 'active file'} - ${docMode}):
-\`\`\`${docMode}
-${docExcerpt.slice(0, 10000)}
-\`\`\`
-IMPORTANT FOR EDITS:
-- If using tools, call replace_lines or insert_content surgically with exact line numbers.
-- If responding with code blocks without tools, preserve all preamble, macros, and unrelated sections from the document above. Never drop parts of the document unless explicitly instructed.`;
-}
-
 export async function callLlm(
   provider: string,
   opts: { apiKey: string; baseUrl: string; model: string },
@@ -281,49 +61,34 @@ export async function callLlm(
   userText: string,
   extra: ExtraToolDef[] = [],
 ): Promise<LlmTurn> {
-  const info = resolveProvider(provider);
-  const model = opts.model.trim() || info.defaultModel;
-  const baseUrl = opts.baseUrl.trim() || info.defaultBaseUrl || '';
-
-  if (info.defaultBaseUrl) {
-    // Every OpenAI-compatible transport: OpenAI, NVIDIA NIM, Groq,
-    // OpenRouter, Ollama, and user-registered custom endpoints.
-    return callOpenAiCompatible(
-      baseUrl || info.defaultBaseUrl,
-      provider === 'ollama' ? '' : opts.apiKey,
-      model,
-      system,
-      history,
-      userText,
-      extra,
-    );
+  const messages: AgentMessage[] = [{ role: 'system', content: system }];
+  for (const h of history) {
+    if (h.role === 'assistant') messages.push({ role: 'assistant', content: h.text });
+    else messages.push({ role: 'user', content: h.text });
   }
-  if (provider === 'anthropic') {
-    return callAnthropic(opts.apiKey, model, system, history, userText, extra);
-  }
-  return callGemini(opts.apiKey, model, system, history, userText, extra);
-}
+  messages.push({ role: 'user', content: userText });
 
-/**
- * Resolve any provider id (builtin or `custom:<…>`) to its connection info.
- * Unknown ids fall back to the default provider — never throw on bad state.
- */
-export function resolveProvider(id: string): ProviderInfo {
-  const builtin = PROVIDERS.find((p) => p.id === id);
-  if (builtin) return builtin;
-  if (id.startsWith('custom:')) {
-    const def = loadCustomProviders().find((c) => c.id === id);
-    if (def) {
-      return {
-        id: def.id,
-        label: def.name,
-        defaultModel: def.model,
-        defaultBaseUrl: def.baseUrl,
-        needsKey: !def.noKey,
-        keyName: customKeyName(def.id),
-        help: `Custom OpenAI-compatible endpoint at ${def.baseUrl}.`,
-      };
+  const tools: ToolDef[] = extra.map((t) => ({
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+    kind: 'external' as const,
+  }));
+
+  let text = '';
+  const toolCalls: LlmToolCall[] = [];
+  for await (const chunk of streamProvider({
+    provider,
+    apiKey: opts.apiKey,
+    baseUrl: opts.baseUrl,
+    model: opts.model,
+    messages,
+    tools,
+  })) {
+    if (chunk.type === 'text') text += chunk.delta;
+    else if (chunk.type === 'tool_call') {
+      toolCalls.push({ name: chunk.call.name, args: chunk.call.args, id: chunk.call.id });
     }
   }
-  return PROVIDERS[0];
+  return { text, toolCalls };
 }

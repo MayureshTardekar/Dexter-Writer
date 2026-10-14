@@ -21,6 +21,7 @@ import { saveSnapshot } from './lib/history';
 import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
 import { getDocStats, getDocumentOutline } from './lib/docUtils';
 import { resolveProvider } from './lib/aiGateway';
+import type { FileAccess } from './lib/agent';
 import { vaultGet, vaultSet } from './lib/vault';
 import { doExport, exportProjectZip, type ExportKind } from './lib/exportDoc';
 import { loadServers, saveServers, type ExternalMcpServer } from './lib/externalMcp';
@@ -57,6 +58,9 @@ export default function App() {
   const [model, setModel] = useState(() => localStorage.getItem('dexter-write:model') || 'gemini-2.0-flash');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('dexter-write:baseUrl') || 'http://localhost:11434/v1');
   const [apiKey, setApiKey] = useState('');
+  // Ghost-text completion is opt-in: it spends an API call per typing pause,
+  // which matters on a free tier. See AI_AGENT_ROADMAP.md §10.
+  const [aiComplete, setAiComplete] = useState(() => localStorage.getItem('dexter-write:ai-complete') === '1');
   const [showByok, setShowByok] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [showGithub, setShowGithub] = useState(false);
@@ -339,6 +343,69 @@ export default function App() {
     }
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, content: v, updatedAt: Date.now() } : f)));
   }, []);
+
+  // Cross-file port for the AI agent's project tools (list_files, read_file,
+  // create_file, edit_file). A stable object that reads through refs, so the
+  // agent engine never imports React state and never sees a stale snapshot.
+  const fileAccess = useMemo<FileAccess>(() => ({
+    list: () => filesRef.current.map((f) => ({
+      name: f.name,
+      mode: modeForName(f.name) || f.mode || 'markdown',
+      lines: f.content ? f.content.split('\n').length : 0,
+      active: f.id === activeIdRef.current,
+    })),
+    read: (name) => filesRef.current.find((f) => f.name === name)?.content ?? null,
+    write: (name, content) => {
+      const target = filesRef.current.find((f) => f.name === name);
+      if (!target) return false;
+      saveSnapshot(target.id, target.name, target.content, 'Pre-AI cross-file edit').catch(() => {});
+      // The active file must go through setDocContent so collab stays in sync.
+      if (target.id === activeIdRef.current) {
+        setDocContent(content);
+        return true;
+      }
+      setFiles((prev) => prev.map((f) => (f.id === target.id ? { ...f, content, updatedAt: Date.now() } : f)));
+      liveRef.current?.setContent(target.id, content);
+      return true;
+    },
+    create: (name, mode, content) => {
+      const withExt = name.includes('.') ? name : `${name}.${extForMode(mode as DocMode)}`;
+      const safeName = uniqueName(filesRef.current, withExt);
+      const f = newProjectFile(safeName, (modeForName(safeName) || mode) as DocMode, content);
+      setFiles((prev) => [...prev, f]);
+      setActiveId(f.id);
+      liveRef.current?.addFile(f);
+      if (f.mode === 'typst') warmupTypstEngine();
+      // Return the de-duplicated name so the agent refers to the real file.
+      return safeName;
+    },
+    activeName: () => filesRef.current.find((f) => f.id === activeIdRef.current)?.name ?? '',
+  }), [setDocContent]);
+
+  const setAiCompleteEnabled = useCallback((next: boolean, note?: string) => {
+    setAiComplete(next);
+    localStorage.setItem('dexter-write:ai-complete', next ? '1' : '0');
+    if (note) toast(note, next ? 'success' : 'info', 3200);
+  }, []);
+
+  // In-editor AI settings: ghost-text completion and Ctrl+I inline edit.
+  const editorAi = useMemo(() => ({
+    provider,
+    apiKey,
+    model,
+    baseUrl,
+    completionEnabled: aiComplete,
+    fileName: active?.name,
+    onRateLimited: (message: string) => {
+      setAiCompleteEnabled(false);
+      toast(`AI completion paused — ${message.slice(0, 90)}`, 'info', 5000);
+    },
+    onBeforeApply: (content: string) => {
+      const cur = filesRef.current.find((f) => f.id === activeIdRef.current);
+      if (cur) saveSnapshot(cur.id, cur.name, content, 'Pre-AI inline edit').catch(() => {});
+    },
+    notify: (message: string, kind: 'success' | 'info' | 'error') => toast(message, kind, 2600),
+  }), [provider, apiKey, model, baseUrl, aiComplete, active?.name, setAiCompleteEnabled]);
 
   async function joinLive(room: string, password: string, name: string, base: ProjectFile[]) {
     if (liveRef.current) return;
@@ -918,6 +985,7 @@ export default function App() {
                   setDocContent={setDocContent}
                   docMode={docMode}
                   fileName={active?.name ?? ''}
+                  fileId={active?.id}
                   provider={provider}
                   apiKey={apiKey}
                   model={model}
@@ -927,6 +995,7 @@ export default function App() {
                   editorRef={editorRef}
                   servers={servers}
                   theme={theme}
+                  files={fileAccess}
                   onOpenReview={() => setShowReview(true)}
                 />
               </div>
@@ -1018,9 +1087,10 @@ export default function App() {
                 mode={docMode}
                 theme={theme}
                 onChange={setDocContent}
-                onSelection={(text, startLine, endLine) => setSelection({ text, startLine, endLine })}
+                onSelection={(text, startLine, endLine) => setSelection(text ? { text, startLine, endLine } : null)}
                 editorRef={editorRef}
                 collab={live && active ? { session: live, fileId: active.id } : null}
+                ai={editorAi}
               />
             </div>
           </section>
@@ -1065,6 +1135,19 @@ export default function App() {
           <Icon name="check" size={11} /> Saved{lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </span>
         <span className="spacer" />
+        <button
+          className={`stat stat-btn${aiComplete ? ' on' : ''}`}
+          onClick={() => setAiCompleteEnabled(
+            !aiComplete,
+            aiComplete ? 'AI completion off' : 'AI completion on — pause while typing, then Tab to accept',
+          )}
+          title={aiComplete
+            ? 'AI ghost-text completion is ON — click to turn off'
+            : 'AI ghost-text completion is OFF — click to turn on (spends one API call per typing pause)'}
+          aria-pressed={aiComplete}
+        >
+          <Icon name="wand" size={11} /> AI complete {aiComplete ? 'on' : 'off'}
+        </button>
         {live && (
           <span className="stat" title={peers.map((p) => p.name).join(', ')}>
             <span className="peers">
