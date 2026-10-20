@@ -23,7 +23,7 @@ export interface ProviderInfo {
 
 export const PROVIDERS: ProviderInfo[] = [
   { id: 'gemini', label: 'Google Gemini', defaultModel: '', needsKey: true, keyName: 'gemini', help: 'Google AI Studio key (AIza…).' },
-  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: '', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Choose an available model at build.nvidia.com' },
+  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: '', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Recommended model: meta/llama-3.2-11b-vision-instruct' },
   { id: 'groq', label: 'Groq Cloud (Ultra Fast)', defaultModel: '', defaultBaseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyName: 'groq', help: 'Groq API key (gsk_…). Choose a model from your Groq account.' },
   { id: 'openrouter', label: 'OpenRouter', defaultModel: '', defaultBaseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyName: 'openrouter', help: 'OpenRouter key (sk-or-…). Choose a model available to your OpenRouter account.' },
   { id: 'openai', label: 'OpenAI', defaultModel: '', defaultBaseUrl: 'https://api.openai.com/v1', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },

@@ -10,13 +10,62 @@ export async function fetchAvailableModels(connection: Pick<ProviderRequest, 'pr
   const provider = resolveProvider(connection.provider);
   let url: string;
   const headers: Record<string, string> = {};
-  if (provider.id === 'gemini') { url = 'https://generativelanguage.googleapis.com/v1beta/models'; headers['x-goog-api-key'] = connection.apiKey; }
-  else if (provider.id === 'anthropic') { url = 'https://api.anthropic.com/v1/models'; headers['x-api-key'] = connection.apiKey; headers['anthropic-version'] = '2023-06-01'; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
-  else { url = (connection.baseUrl || provider.defaultBaseUrl || '').replace(/\/$/, '') + '/models'; if (provider.needsKey) headers.Authorization = `Bearer ${connection.apiKey}`; }
+  if (provider.id === 'gemini') {
+    url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(connection.apiKey)}`;
+  } else if (provider.id === 'anthropic') {
+    url = 'https://api.anthropic.com/v1/models';
+    headers['x-api-key'] = connection.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+  } else {
+    let base = (connection.baseUrl || provider.defaultBaseUrl || '').replace(/\/+$/, '');
+    if (
+      typeof window !== 'undefined' &&
+      /^(localhost|127\.0\.0\.1)/.test(window.location.hostname) &&
+      base.includes('integrate.api.nvidia.com')
+    ) {
+      base = base.replace(/https?:\/\/integrate\.api\.nvidia\.com/, '/api/nvidia');
+    }
+    url = `${base}/models`;
+    if (provider.needsKey) headers.Authorization = `Bearer ${connection.apiKey}`;
+  }
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error(`Model listing failed (${response.status}). You can enter a model ID manually.`);
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Connection rejected (${response.status}): ${errBody.slice(0, 200) || response.statusText}`);
+  }
   const body = await response.json();
-  return (body.models || body.data || []).filter((m: { supportedGenerationMethods?: string[] }) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m: { id?: string; name?: string }) => String(m.id || m.name || '').replace(/^models\//, '')).filter(Boolean).sort();
+  return (body.models || body.data || [])
+    .filter((m: { supportedGenerationMethods?: string[] }) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent'))
+    .map((m: { id?: string; name?: string }) => String(m.id || m.name || '').replace(/^models\//, ''))
+    .filter(Boolean)
+    .sort();
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  message: string;
+  models: string[];
+}
+
+export async function testProviderConnection(connection: Pick<ProviderRequest, 'provider' | 'apiKey' | 'baseUrl'>): Promise<ConnectionTestResult> {
+  const provider = resolveProvider(connection.provider);
+  if (provider.needsKey && !connection.apiKey.trim()) {
+    return { ok: false, message: 'Please enter an API key first.', models: [] };
+  }
+  try {
+    const models = await fetchAvailableModels(connection);
+    return {
+      ok: true,
+      message: models.length > 0
+        ? `Connected to ${provider.label} successfully! (${models.length} models available)`
+        : `Connected to ${provider.label} successfully!`,
+      models,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, message: msg, models: [] };
+  }
 }
 /** Probe the selected model rather than guessing capabilities from its name. */
 export async function testModelConnection(connection: Pick<ProviderRequest, 'provider' | 'apiKey' | 'model' | 'baseUrl'>, checkVision = false): Promise<ModelCapabilities> {

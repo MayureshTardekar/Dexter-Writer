@@ -94,10 +94,17 @@ export function endpointFor(baseUrl: string): string {
   return effective.replace(/\/$/, '') + '/chat/completions';
 }
 
+export function cleanApiKey(key: string): string {
+  let cleaned = (key || '').trim();
+  if (/^bearer\s+/i.test(cleaned)) cleaned = cleaned.replace(/^bearer\s+/i, '').trim();
+  return cleaned.replace(/^["']|["']$/g, '').trim();
+}
+
 function headersFor(opts: ProviderCallOptions): Record<string, string> {
+  const key = cleanApiKey(opts.apiKey || '');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {}),
+    ...(key ? { Authorization: `Bearer ${key}` } : {}),
   };
   if (opts.baseUrl.includes('openrouter.ai')) {
     headers['HTTP-Referer'] = 'https://github.com/MayureshTardekar/Dexter-Writer';

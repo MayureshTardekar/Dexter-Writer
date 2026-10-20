@@ -1,4 +1,4 @@
-import { fetchAvailableModels, testModelConnection, readModelCapabilities, type ModelCapabilities } from '../lib/modelCapabilities';
+import { fetchAvailableModels, testModelConnection, testProviderConnection, readModelCapabilities, type ModelCapabilities } from '../lib/modelCapabilities';
 import { useState } from 'react';
 import { PROVIDERS, resolveProvider } from '../lib/aiGateway';
 import { vaultDelete } from '../lib/vault';
@@ -149,6 +149,23 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
     }
   }
 
+  async function runBuiltinTest() {
+    setTesting(true);
+    setTest({ phase: 'testing', message: `Contacting ${info.label}…`, models: [] });
+    const res = await testProviderConnection({ provider, baseUrl, apiKey });
+    setTesting(false);
+    if (res.ok) {
+      setTest({
+        phase: 'ok',
+        message: res.message,
+        models: res.models,
+      });
+      setAvailableModels(res.models);
+    } else {
+      setTest({ phase: 'err', message: res.message || 'Connection failed.', models: [] });
+    }
+  }
+
   function fillModelFromTest(m: string) {
     if (editing) {
       setEditing({ ...editing, model: m });
@@ -239,7 +256,6 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
               <label>Model</label>
               <input list="available-ai-models" value={model} onChange={(e) => { setModel(e.target.value); setProbe(null); }} placeholder={info.defaultModel || 'Model ID from your provider'} />
               <datalist id="available-ai-models">{availableModels.map((id) => <option key={id} value={id} />)}</datalist>
-              <button className="btn xs" disabled={probing || info.needsKey && !apiKey} onClick={async () => { setProbing(true); setProbeError(''); try { setAvailableModels(await fetchAvailableModels({ provider, baseUrl, apiKey })); } catch (e) { setProbeError(String(e)); } finally { setProbing(false); } }}>Load available models</button>
               {hasBaseUrl && (
                 <>
                   <label>Base URL</label>
@@ -254,12 +270,61 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
                 <>
                   <label>API Key</label>
                   <div className="row">
-                    <input type={show ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={info.help} />
+                    <input type={show ? 'text' : 'password'} value={apiKey} onChange={(e) => { setApiKey(e.target.value); setTest(null); }} placeholder={info.help} />
                     <button className="btn" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button>
                   </div>
                 </>
               )}
               <p className="muted small">{info.help}</p>
+
+              <div className="row" style={{ marginTop: '8px', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  className="btn xs"
+                  disabled={testing || (info.needsKey && !apiKey.trim())}
+                  onClick={runBuiltinTest}
+                  title="Verify your API key and connection to this provider"
+                >
+                  {testing ? 'Testing connection…' : 'Test connection'}
+                </button>
+                <button
+                  className="btn xs ghost"
+                  disabled={probing || (info.needsKey && !apiKey.trim())}
+                  onClick={async () => {
+                    setProbing(true);
+                    setProbeError('');
+                    try {
+                      const list = await fetchAvailableModels({ provider, baseUrl, apiKey });
+                      setAvailableModels(list);
+                      setTest({ phase: 'ok', message: `${list.length} models loaded.`, models: list });
+                    } catch (e) {
+                      setProbeError(String(e));
+                    } finally {
+                      setProbing(false);
+                    }
+                  }}
+                >
+                  {probing ? 'Loading models…' : 'Load available models'}
+                </button>
+              </div>
+
+              {test && (
+                <div className={test.phase === 'err' ? 'mcp-error' : 'sel-chip'} style={{ marginTop: '8px' }}>
+                  <span>{test.phase === 'testing' ? 'Testing…' : test.message}</span>
+                </div>
+              )}
+
+              {test?.phase === 'ok' && test.models.length > 0 && (
+                <div style={{ marginTop: '6px' }}>
+                  <span className="muted small" style={{ display: 'block', marginBottom: '4px' }}>Click to select a model:</span>
+                  <div className="row" style={{ flexWrap: 'wrap', gap: '4px' }}>
+                    {test.models.slice(0, 8).map((m) => (
+                      <button key={m} className="btn xs ghost" title="Use this model" onClick={() => fillModelFromTest(m)}>
+                        {m.length > 40 ? `${m.slice(0, 40)}…` : m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="connection-probe">
                 <label className="row"><input type="checkbox" checked={checkVision} onChange={(e) => setCheckVision(e.target.checked)} />Also check image input using a test pixel (no project images are sent)</label>
                 <button className="btn" disabled={probing || !model.trim() || info.needsKey && !apiKey} onClick={async () => { setProbing(true); setProbeError(''); setProbe(null); try { setProbe(await testModelConnection({ provider, model, baseUrl, apiKey }, checkVision)); } catch (e) { setProbeError(String(e)); } finally { setProbing(false); } }}>{probing ? 'Checking model…' : 'Test model connection and tools'}</button>
@@ -297,7 +362,17 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
           <button
             className="btn primary"
             disabled={saving || !!editing}
-            onClick={async () => { setSaving(true); await saveKey(apiKey); localStorage.setItem('dexter-write:model', model); localStorage.setItem('dexter-write:provider', provider); localStorage.setItem('dexter-write:baseUrl', baseUrl); setSaving(false); onClose(); }}
+            onClick={async () => {
+              setSaving(true);
+              const cleanKey = apiKey.trim().replace(/^bearer\s+/i, '').replace(/^["']|["']$/g, '').trim();
+              setApiKey(cleanKey);
+              await saveKey(cleanKey);
+              localStorage.setItem('dexter-write:model', model);
+              localStorage.setItem('dexter-write:provider', provider);
+              localStorage.setItem('dexter-write:baseUrl', baseUrl);
+              setSaving(false);
+              onClose();
+            }}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
