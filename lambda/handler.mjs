@@ -9,6 +9,8 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400',
+  'Access-Control-Expose-Headers': 'X-Page-Count, X-Compile-Ms, X-Project-Files',
+  'X-Project-Files': '1',
 };
 
 const PREWARMED_CACHE_DIR = '/var/task/.cache/Tectonic';
@@ -33,7 +35,7 @@ async function ensureCacheReady() {
  * Compiles a LaTeX string into a PDF buffer using Tectonic.
  * Runs in an isolated temporary directory with a strict timeout.
  */
-export async function compileLatexToPdf(texSource, timeoutMs = 25000) {
+export async function compileLatexToPdf(texSource, timeoutMs = 25000, files = []) {
   if (!texSource || typeof texSource !== 'string' || !texSource.trim()) {
     throw new Error('Missing or empty LaTeX source text.');
   }
@@ -50,6 +52,19 @@ export async function compileLatexToPdf(texSource, timeoutMs = 25000) {
   const pdfFile = path.join(workDir, 'main.pdf');
 
   try {
+    if (!Array.isArray(files) || files.length > 200) throw new Error('Too many project files.');
+    let totalBytes = 0;
+    for (const file of files) {
+      const relative = String(file.path || '').replace(/\\/g, '/');
+      if (!relative || relative.startsWith('/') || relative.split('/').some((p) => !p || p === '.' || p === '..') || Array.from(relative).some((c) => c === ':' || c.charCodeAt(0) < 32) || relative === 'main.tex') throw new Error('Invalid project file path.');
+      const target = path.resolve(workDir, relative);
+      if (!target.startsWith(workDir + path.sep)) throw new Error('Invalid project file path.');
+      const bytes = Buffer.from(String(file.base64 || ''), 'base64');
+      totalBytes += bytes.length;
+      if (totalBytes > 4 * 1024 * 1024) throw new Error('Project files exceed 4 MB cloud limit. Use local compilation.');
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, bytes);
+    }
     await fs.writeFile(texFile, texSource, 'utf8');
 
     // Run Tectonic compiler
@@ -157,7 +172,7 @@ export async function handler(event) {
     }
 
     const t0 = Date.now();
-    const { pdf, pageCount } = await compileLatexToPdf(tex);
+    const { pdf, pageCount } = await compileLatexToPdf(tex, 25000, payload.files || []);
     const compileMs = Date.now() - t0;
 
     return {

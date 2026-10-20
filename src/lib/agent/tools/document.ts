@@ -1,4 +1,4 @@
-import type { ToolCall, ToolDef } from '../types';
+import type { MissingInfoQuestion, ToolCall, ToolDef } from '../types';
 import type { DocMode } from '../../templates';
 import { getDocumentOutline } from '../../docUtils';
 import { insertContent, readDocumentContent, replaceLines, validateDocEdit } from '../../virtualMcp';
@@ -22,6 +22,9 @@ export interface ToolOutcome {
   /** Set only when the ACTIVE document changed. */
   newContent?: string;
   badge?: string;
+  /** Set by `request_user_input`; the agent loop stops when this is true. */
+  pause?: boolean;
+  questions?: MissingInfoQuestion[];
 }
 
 const MAX_READ_CHARS = 6000;

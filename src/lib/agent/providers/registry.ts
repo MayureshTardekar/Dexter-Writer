@@ -22,13 +22,13 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: ProviderInfo[] = [
-  { id: 'gemini', label: 'Google Gemini', defaultModel: 'gemini-2.0-flash', needsKey: true, keyName: 'gemini', help: 'Google AI Studio key (AIza…).' },
-  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: 'meta/muse-glimmer-30b', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Free endpoints at build.nvidia.com' },
-  { id: 'groq', label: 'Groq Cloud (Ultra Fast)', defaultModel: 'llama-3.3-70b-versatile', defaultBaseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyName: 'groq', help: 'Groq API key (gsk_…). Free ultra-fast 300 t/s at console.groq.com' },
-  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'meta-llama/llama-3.3-70b-instruct', defaultBaseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyName: 'openrouter', help: 'OpenRouter key (sk-or-…). Access 200+ models at openrouter.ai' },
-  { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-4o-mini', defaultBaseUrl: 'https://api.openai.com/v1', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },
-  { id: 'anthropic', label: 'Anthropic Claude', defaultModel: 'claude-3-5-sonnet-latest', needsKey: true, keyName: 'anthropic', help: 'sk-ant-… key. Note: browsers may hit CORS; use Ollama if blocked.' },
-  { id: 'ollama', label: 'Ollama (local)', defaultModel: 'llama3.1', defaultBaseUrl: 'http://localhost:11434/v1', needsKey: false, keyName: 'ollama-base', help: 'Local endpoint, e.g. http://localhost:11434/v1. Run with OLLAMA_ORIGINS=*' },
+  { id: 'gemini', label: 'Google Gemini', defaultModel: '', needsKey: true, keyName: 'gemini', help: 'Google AI Studio key (AIza…).' },
+  { id: 'nvidia', label: 'NVIDIA NIM (build.nvidia.com)', defaultModel: '', defaultBaseUrl: 'https://integrate.api.nvidia.com/v1', needsKey: true, keyName: 'nvidia', help: 'NVIDIA API key (nvapi-…). Choose an available model at build.nvidia.com' },
+  { id: 'groq', label: 'Groq Cloud (Ultra Fast)', defaultModel: '', defaultBaseUrl: 'https://api.groq.com/openai/v1', needsKey: true, keyName: 'groq', help: 'Groq API key (gsk_…). Choose a model from your Groq account.' },
+  { id: 'openrouter', label: 'OpenRouter', defaultModel: '', defaultBaseUrl: 'https://openrouter.ai/api/v1', needsKey: true, keyName: 'openrouter', help: 'OpenRouter key (sk-or-…). Choose a model available to your OpenRouter account.' },
+  { id: 'openai', label: 'OpenAI', defaultModel: '', defaultBaseUrl: 'https://api.openai.com/v1', needsKey: true, keyName: 'openai', help: 'sk-… key. Direct browser call.' },
+  { id: 'anthropic', label: 'Anthropic Claude', defaultModel: '', needsKey: true, keyName: 'anthropic', help: 'sk-ant-… key. Note: browsers may hit CORS; use Ollama if blocked.' },
+  { id: 'ollama', label: 'Ollama (local)', defaultModel: '', defaultBaseUrl: 'http://localhost:11434/v1', needsKey: false, keyName: 'ollama-base', help: 'Local endpoint, e.g. http://localhost:11434/v1. Run with OLLAMA_ORIGINS=*' },
 ];
 
 /**
@@ -77,6 +77,7 @@ export function resolveConnection(
   opts: { apiKey: string; baseUrl: string; model: string },
 ): { apiKey: string; baseUrl: string; model: string; kind: ProviderKind } {
   const info = resolveProvider(provider);
+  if (!opts.model.trim() && !info.defaultModel) throw new Error('Choose an available model in AI Settings before sending a request.');
   return {
     // Ollama is keyless; sending a bearer token confuses some local servers.
     apiKey: provider === 'ollama' ? '' : opts.apiKey,

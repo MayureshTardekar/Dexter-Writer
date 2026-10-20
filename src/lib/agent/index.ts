@@ -12,6 +12,7 @@
 export type {
   AgentMessage,
   FileAccess,
+  MissingInfoQuestion,
   ProviderCallOptions,
   ProviderChunk,
   ProviderStream,
@@ -22,7 +23,31 @@ export type {
   ToolKind,
   ToolResult,
 } from './types';
-export { isAbortError } from './types';
+export { PAUSE_TOOL_NAME, isAbortError } from './types';
+
+export {
+  answerQuestion,
+  beginQuestionFlow,
+  buildQuestionMessage,
+  cancelQuestion,
+  findRetryRequest,
+  isWaitingForAnswer,
+  retryTurnFor,
+} from './questionFlow';
+export type {
+  AnswerResult,
+  QuestionAnswer,
+  QuestionFlow,
+  QuestionStatus,
+  RetryMessage,
+  RetryRequest,
+  RetryTurn,
+} from './questionFlow';
+export {
+  describeFactWarnings,
+  findMissingInputPlaceholders,
+  findTemplateSampleFacts,
+} from './factSafety';
 
 export { runAgent } from './loop';
 export type { AgentRunOptions } from './loop';
@@ -40,3 +65,4 @@ export type { ToolContext } from './tools/registry';
 export { DOCUMENT_TOOL_DEFS, DOCUMENT_TOOL_NAMES, executeDocumentTool } from './tools/document';
 export type { ToolOutcome } from './tools/document';
 export { FILE_TOOL_DEFS, FILE_TOOL_NAMES, executeFileTool, renderFileList } from './tools/files';
+export { INPUT_TOOL_DEFS, INPUT_TOOL_NAMES, executeInputTool } from './tools/input';

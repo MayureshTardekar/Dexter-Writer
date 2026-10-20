@@ -1,3 +1,6 @@
+import type { CompileFile } from './projectRuntime';
+import { compilerCacheKey, bytesBase64 } from './compilerFiles';
+import { projectPath } from './projectPaths';
 import { BusyTexRunner, PdfLatex } from 'texlyre-busytex';
 
 export interface LatexCompileResult {
@@ -87,7 +90,7 @@ export function findMissingPackage(log: string): string | null {
 }
 
 const LAMBDA_STORAGE_KEY = 'dexter_latex_lambda_url';
-export const DEFAULT_LATEX_LAMBDA_URL = 'https://qrcz6lt55f2g4qdocjunecepn40kwodf.lambda-url.ap-south-1.on.aws/';
+export const DEFAULT_LATEX_LAMBDA_URL = ''; // Remote compilation requires explicit configuration.
 
 /**
  * Returns the configured AWS Lambda compiler URL.
@@ -98,12 +101,13 @@ export function getLambdaUrl(): string | null {
   try {
     if (typeof localStorage !== 'undefined') {
       const custom = localStorage.getItem(LAMBDA_STORAGE_KEY);
+      if (custom === 'local') return null;
       if (custom && custom.trim()) return custom.trim();
     }
   } catch {}
   const envUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_LATEX_LAMBDA_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim()) return envUrl.trim();
-  return DEFAULT_LATEX_LAMBDA_URL;
+  return DEFAULT_LATEX_LAMBDA_URL || null;
 }
 
 /**
@@ -225,12 +229,8 @@ export function warmupLatexEngine(): void {
 const cache = new Map<string, Promise<LatexCompileResult>>();
 const MAX_CACHE = 8;
 
-function getCacheKey(source: string, extraFiles?: { path: string; content: string }[]): string {
-  let hash = 0;
-  for (let i = 0; i < source.length; i++) hash = (Math.imul(hash, 31) + source.charCodeAt(i)) | 0;
-  const extraLen = extraFiles?.reduce((acc, f) => acc + f.content.length, 0) || 0;
-  return `tex:${source.length}:${extraLen}:${hash}`;
-}
+const getCacheKey = compilerCacheKey;
+let compileQueue: Promise<unknown> = Promise.resolve();
 
 let activeBlobUrl: string | null = null;
 
@@ -263,7 +263,8 @@ export function isRemoteInfraFailure(errorMsg?: string): boolean {
 
 export async function compileWithLambda(
   source: string,
-  lambdaUrl: string
+  lambdaUrl: string,
+  extraFiles: CompileFile[] = []
 ): Promise<LatexCompileResult> {
   const t0 = performance.now();
   notifyStatus('compiling', 40, 'Compiling document…');
@@ -282,7 +283,7 @@ export async function compileWithLambda(
   const res = await fetch(lambdaUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tex: payloadTex }),
+    body: JSON.stringify({ tex: payloadTex, files: extraFiles.map((f) => ({ path: projectPath(f.path), base64: bytesBase64(typeof f.content === 'string' ? new TextEncoder().encode(f.content) : f.content) })) }),
   });
 
   const compileMs = Math.round(performance.now() - t0);
@@ -304,6 +305,9 @@ export async function compileWithLambda(
     };
   }
 
+  if (extraFiles.length && res.headers.get('X-Project-Files') !== '1') {
+    return { success: false, error: 'Cloud compiler does not confirm project file support; retrying locally.' };
+  }
   const blob = await res.blob();
   const pdfBuffer = new Uint8Array(await blob.arrayBuffer());
 
@@ -329,22 +333,22 @@ export async function compileWithLambda(
 
 export async function compileLatexPdf(
   source: string,
-  extraFiles: { path: string; content: string }[] = []
+  extraFiles: CompileFile[] = []
 ): Promise<LatexCompileResult> {
   const key = getCacheKey(source, extraFiles);
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const promise = (async (): Promise<LatexCompileResult> => {
+  const promise = compileQueue.then(async (): Promise<LatexCompileResult> => {
     const t0 = performance.now();
 
     // 1. Prefer AWS Lambda if configured and online (Zero MB client download)
     const lambdaUrl = getLambdaUrl();
     const canUseRemote = Boolean(lambdaUrl && (typeof navigator === 'undefined' || navigator.onLine));
 
-    if (canUseRemote && lambdaUrl) {
+    if (canUseRemote && lambdaUrl && extraFiles.reduce((n, f) => n + f.content.length, 0) <= 4 * 1024 * 1024) {
       try {
-        const remoteRes = await compileWithLambda(source, lambdaUrl);
+        const remoteRes = await compileWithLambda(source, lambdaUrl, extraFiles);
         if (remoteRes.success) return remoteRes;
         // Genuine LaTeX syntax errors come back as TeX logs — return those
         // directly. Anything else (HTTP 4xx/5xx, timeouts) falls through to
@@ -442,7 +446,8 @@ export async function compileLatexPdf(
         compileMs: Math.round(performance.now() - t0),
       };
     }
-  })();
+  });
+  compileQueue = promise.catch(() => {});
 
   cache.set(key, promise);
   if (cache.size > MAX_CACHE) {

@@ -2,14 +2,16 @@
 // so the app reads as professional software, not a prototype.
 
 export type IconName =
-  | 'bolt' | 'files' | 'template' | 'list' | 'expand' | 'minimize' | 'sun' | 'moon'
-  | 'key' | 'plug' | 'github' | 'book' | 'history' | 'keyboard' | 'download'
+  | 'edit' | 'image' | 'bolt' | 'files' | 'template' | 'list' | 'expand' | 'minimize' | 'sun' | 'moon'
+  | 'key' | 'plug' | 'github' | 'book' | 'history' | 'undo' | 'keyboard' | 'download'
   | 'plus' | 'x' | 'check' | 'mic' | 'send' | 'copy' | 'search' | 'chevron'
   | 'chevronsLeft' | 'chevronsRight' | 'trash' | 'refresh' | 'alert' | 'info' | 'link' | 'logout' | 'sparkles'
   | 'fileText' | 'menu' | 'command' | 'quote' | 'stop' | 'wand'
   | 'layoutSplit' | 'layoutLeft' | 'layoutCenter' | 'layoutRight';
 
 const PATHS: Record<IconName, string> = {
+  edit: 'M15 3l6 6M3 21l2-7L16 3a2 2 0 0 1 3 0l2 2a2 2 0 0 1 0 3L10 19z',
+  image: 'M3 3h18v18H3zM3 17l5-5 4 4 3-3 6 6M8 7h.01',
   bolt: 'M13 2 3 14h7l-1 8 10-12h-7l1-8z',
   files: 'M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M12 2v20',
   template: 'M4 4h16v16H4zM4 9h16M9 9v11',
@@ -23,6 +25,7 @@ const PATHS: Record<IconName, string> = {
   github: 'M9 19c-4 1.5-4-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1-.6 2V19',
   book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5',
   history: 'M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5M12 7v5l3.5 2',
+  undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
   keyboard: 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6',
   download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
   plus: 'M12 5v14M5 12h14',

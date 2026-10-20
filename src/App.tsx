@@ -1,3 +1,12 @@
+import { persistAiAction, readAiAction, removeAiAction } from './lib/aiActions';
+import ProjectFileTree from './components/ProjectFileTree';
+import AssetLibraryModal from './components/AssetLibraryModal';
+import ProjectHubModal from './components/ProjectHubModal';
+import { ProjectContext, compileLatexProject, compileTypstProject, type ProjectRuntime } from './lib/projectRuntime';
+import { listAssets, storeAsset, removeAsset, prepareAsset, imageSnippet, type ProjectAsset, type ImageOptions } from './lib/assets';
+import { projectPath, resolveProjectPath, relativeProjectPath } from './lib/projectPaths';
+import { documentReferences, validateProject } from './lib/validateProject';
+import type { ImportedProject } from './lib/importProject';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import EditorPane from './components/EditorPane';
 import PreviewPane, { type SourceJump } from './components/PreviewPane';
@@ -22,6 +31,18 @@ import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
 import { getDocStats, getDocumentOutline } from './lib/docUtils';
 import { resolveProvider } from './lib/aiGateway';
 import type { FileAccess } from './lib/agent';
+import {
+  clearUndoAction,
+  describeConflicts,
+  findUndoConflicts,
+  findWorkspaceConflicts,
+  loadUndoAction,
+  workspaceSummary,
+  type AppliedAiAction,
+  type AppliedWorkspaceFile,
+  type StagedWorkspace,
+  type WorkspaceApplyResult,
+} from './lib/aiWorkspace';
 import { vaultGet, vaultSet } from './lib/vault';
 import { doExport, exportProjectZip, type ExportKind } from './lib/exportDoc';
 import { loadServers, saveServers, type ExternalMcpServer } from './lib/externalMcp';
@@ -50,14 +71,34 @@ import type { RepoDoc } from './lib/github';
 
 const LS_THEME = 'dexter-write:theme';
 
+function newAiActionId(): string {
+  return `ai_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem(LS_THEME) as 'dark' | 'light') || 'dark');
-  const [files, setFiles] = useState<ProjectFile[]>(() => loadProject().files);
-  const [activeId, setActiveId] = useState<string>(() => loadProject().activeId);
+  const [initialProject] = useState(loadProject);
+  const [files, setFiles] = useState<ProjectFile[]>(initialProject.files);
+  const [activeId, setActiveId] = useState<string>(initialProject.activeId);
   const [provider, setProvider] = useState<string>(() => localStorage.getItem('dexter-write:provider') || 'gemini');
-  const [model, setModel] = useState(() => localStorage.getItem('dexter-write:model') || 'gemini-2.0-flash');
+  const [model, setModel] = useState(() => localStorage.getItem('dexter-write:model') || '');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('dexter-write:baseUrl') || 'http://localhost:11434/v1');
   const [apiKey, setApiKey] = useState('');
+  const [projectId] = useState(() => { const existing = localStorage.getItem('dexter-write:project-id'); if (existing) return existing; const id = crypto.randomUUID(); localStorage.setItem('dexter-write:project-id', id); return id; });
+  const [assets, setAssets] = useState<ProjectAsset[]>([]);
+  const [assetUrls, setAssetUrls] = useState<Record<string, string>>({});
+  const [sharedAssetIds, setSharedAssetIds] = useState<string[]>([]);
+  const [showAssets, setShowAssets] = useState(false);
+  const [showHub, setShowHub] = useState(() => localStorage.getItem('dexter-write:started') !== '1');
+  const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saving');
+  const [saveError, setSaveError] = useState('');
+  const [validationStatus, setValidationStatus] = useState('Draft');
+  useEffect(() => { listAssets(projectId).then(setAssets).catch((e) => toast(`Images could not be loaded: ${String(e)}`, 'error', 7000)); }, [projectId]);
+  useEffect(() => {
+    const urls = Object.fromEntries(assets.map((a) => [a.path, URL.createObjectURL(a.blob)]));
+    setAssetUrls(urls);
+    return () => Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+  }, [assets]);
   // Ghost-text completion is opt-in: it spends an API call per typing pause,
   // which matters on a free tier. See AI_AGENT_ROADMAP.md §10.
   const [aiComplete, setAiComplete] = useState(() => localStorage.getItem('dexter-write:ai-complete') === '1');
@@ -69,6 +110,13 @@ export default function App() {
   const [showCitations, setShowCitations] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [aiFixProposal, setAiFixProposal] = useState<{ summary: string; before: string; after: string } | null>(null);
+  const [undoAction, setUndoAction] = useState<AppliedAiAction | null>(null);
+  const undoVersionRef = useRef(0);
+  useEffect(() => {
+    let mounted = true; const version = undoVersionRef.current;
+    readAiAction(projectId).then((action) => { if (mounted && version === undoVersionRef.current) setUndoAction(action || loadUndoAction()); }).catch((e) => toast(`Undo history could not be loaded: ${String(e)}`, 'error'));
+    return () => { mounted = false; };
+  }, [projectId]);
   const [citations, setCitations] = useState<CitationEntry[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('dexter-write:citations') || '[]');
@@ -221,6 +269,8 @@ export default function App() {
   const active = files.find((f) => f.id === activeId) ?? files[0];
   const docContent = active?.content ?? '';
   const docMode: DocMode = active ? (modeForName(active.name) || active.mode || 'markdown') : 'markdown';
+  const runtime = useMemo<ProjectRuntime>(() => ({ files, assets, urls: assetUrls, activeName: active?.name || 'main.md', revision: assets.reduce((n, a) => n + a.updatedAt, 0) }), [files, assets, assetUrls, active?.name]);
+  useEffect(() => setValidationStatus('Draft'), [files, assets]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -243,8 +293,15 @@ export default function App() {
 
   const [lastSaved, setLastSaved] = useState<number | null>(null);
   useEffect(() => {
-    saveProject(files, activeId);
-    setLastSaved(Date.now());
+    setSaveState('saving');
+    const save = () => {
+      const result = saveProject(filesRef.current, activeIdRef.current);
+      if (result.ok) { setSaveState('saved'); setLastSaved(Date.now()); setSaveError(''); }
+      else { setSaveState('error'); setSaveError(result.error); toast(`Project save failed: ${result.error}. Download a backup ZIP.`, 'error', 7000); }
+    };
+    const timer = window.setTimeout(save, 400);
+    window.addEventListener('pagehide', save);
+    return () => { window.clearTimeout(timer); window.removeEventListener('pagehide', save); };
   }, [files, activeId]);
 
   // Keep activeId valid (e.g. file deleted by a remote peer).
@@ -302,7 +359,7 @@ export default function App() {
         setPaletteOpen((v) => !v);
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        toast('Project autosaved locally', 'success', 1800);
+        const result = saveProject(filesRef.current, activeIdRef.current); toast(result.ok ? 'Project saved locally' : `Save failed: ${result.error}`, result.ok ? 'success' : 'error', 3500);
       } else if (mod && e.key === 'Enter') {
         e.preventDefault();
         triggerRecompile();
@@ -380,7 +437,144 @@ export default function App() {
       return safeName;
     },
     activeName: () => filesRef.current.find((f) => f.id === activeIdRef.current)?.name ?? '',
+    idOf: (name) => filesRef.current.find((f) => f.name === name)?.id ?? null,
   }), [setDocContent]);
+
+  const applyAiWorkspace = useCallback((workspace: StagedWorkspace): WorkspaceApplyResult => {
+    const current = filesRef.current;
+    const conflicts = findWorkspaceConflicts(workspace, current);
+    if (conflicts.length > 0) return { ok: false, conflicts };
+
+    const sess = liveRef.current;
+    const now = Date.now();
+    const created: ProjectFile[] = [];
+    const updates = new Map<string, string>();
+    const applied: AppliedWorkspaceFile[] = [];
+
+    for (const change of workspace.changes) {
+      if (change.before === null) {
+        const file = newProjectFile(change.name, change.mode, change.after);
+        created.push(file);
+        applied.push({
+          created: true,
+          fileId: file.id,
+          name: file.name,
+          mode: file.mode,
+          before: null,
+          after: change.after,
+        });
+        continue;
+      }
+      const target = current.find((file) => (
+        change.fileId ? file.id === change.fileId : file.name === change.name
+      ));
+      if (!target) {
+        return {
+          ok: false,
+          conflicts: [{ key: change.key, name: change.name, reason: 'missing' }],
+        };
+      }
+      saveSnapshot(target.id, target.name, target.content, `Pre-AI: ${workspaceSummary(workspace)}`).catch(() => {});
+      updates.set(target.id, change.after);
+      applied.push({
+        created: false,
+        fileId: target.id,
+        name: target.name,
+        mode: target.mode,
+        before: change.before,
+        after: change.after,
+      });
+    }
+
+    if (created.length > 0) {
+      setFiles((prev) => [...prev, ...created]);
+      for (const file of created) {
+        sess?.addFile(file);
+        if (file.mode === 'typst') warmupTypstEngine();
+      }
+    }
+
+    const activeId = activeIdRef.current;
+    for (const [id, content] of updates) {
+      if (id === activeId) {
+        setDocContent(content);
+      } else {
+        setFiles((prev) => prev.map((file) => (
+          file.id === id ? { ...file, content, updatedAt: now } : file
+        )));
+        sess?.setContent(id, content);
+      }
+    }
+
+    const action: AppliedAiAction = {
+      id: newAiActionId(),
+      createdAt: now,
+      summary: workspaceSummary(workspace),
+      files: applied,
+      previousActiveId: activeIdRef.current,
+    };
+    const nextActive = workspace.activeName && [...current, ...created].find((file) => file.name === workspace.activeName);
+    if (nextActive) setActiveId(nextActive.id);
+    undoVersionRef.current++;
+    setUndoAction(action);
+    void persistAiAction(projectId, action).catch((e) => toast(`AI changes applied, but Undo could not be saved for reload: ${String(e)}. Undo is still available in this session.`, 'error', 7000));
+    return { ok: true, action };
+  }, [setDocContent, projectId]);
+
+  const undoLastAiAction = useCallback(() => {
+    const action = undoAction;
+    if (!action) return;
+    const current = filesRef.current;
+    const conflicts = findUndoConflicts(action, current);
+    if (conflicts.length > 0) {
+      toast(`Undo blocked because ${describeConflicts(conflicts)}. Nothing was overwritten.`, 'error', 7000);
+      return;
+    }
+
+    const sess = liveRef.current;
+    const now = Date.now();
+    const removals = new Set<string>();
+    const updates = new Map<string, string>();
+    for (const file of action.files) {
+      if (file.created) {
+        removals.add(file.fileId);
+        continue;
+      }
+      if (file.before === null) continue;
+      updates.set(file.fileId, file.before);
+      const target = current.find((item) => item.id === file.fileId);
+      if (target) saveSnapshot(target.id, target.name, target.content, 'Pre-AI undo').catch(() => {});
+    }
+
+    const activeId = activeIdRef.current;
+    setFiles((prev) => {
+      let next = prev.filter((file) => !removals.has(file.id));
+      if (updates.size > 0) {
+        next = next.map((file) => {
+          const content = updates.get(file.id);
+          return content === undefined ? file : { ...file, content, updatedAt: now };
+        });
+      }
+      return next;
+    });
+    for (const [id, content] of updates) {
+      sess?.setContent(id, content);
+      if (id === activeId) setDocContent(content);
+    }
+    for (const id of removals) sess?.removeFile(id);
+    if (action.previousActiveId && current.some((file) => file.id === action.previousActiveId && !removals.has(file.id))) {
+      setActiveId(action.previousActiveId);
+    } else if (removals.has(activeId)) {
+      const remaining = current.filter((file) => !removals.has(file.id));
+      if (remaining.length > 0) setActiveId(remaining[0].id);
+    }
+
+    undoVersionRef.current++;
+    setUndoAction(null);
+    clearUndoAction();
+    void removeAiAction(projectId).catch((e) => toast(`Undo history cleanup failed: ${String(e)}`, 'error'));
+    toast(`Undid ${action.summary}.`, 'success', 3500);
+  }, [undoAction, setDocContent, projectId]);
 
   const setAiCompleteEnabled = useCallback((next: boolean, note?: string) => {
     setAiComplete(next);
@@ -450,9 +644,110 @@ export default function App() {
     );
   }
 
+  function closeHub() { setShowHub(false); try { localStorage.setItem('dexter-write:started', '1'); } catch { /* save state reports project failures */ } }
+  function createDocument(name: string, mode: DocMode, content: string) {
+    const final = uniqueName(filesRef.current, projectPath(name));
+    if (assets.some((a) => a.path === final)) throw new Error('This path belongs to an image; choose a document filename.');
+    if (modeForName(final) !== mode) throw new Error('Choose a filename extension that matches the document format.');
+    const file = newProjectFile(final, mode, content);
+    setFiles((prev) => [...prev, file]); setActiveId(file.id); liveRef.current?.addFile(file);
+  }
+  async function uploadImages(incoming: File[], insert = false) {
+    const targetId = activeIdRef.current;
+    const next = [...assets];
+    if (liveRef.current) toast('Images are saved on this device. Share a project ZIP with collaborators so they have the image files too.', 'info', 7000);
+    for (const file of incoming) {
+      const asset = await prepareAsset(file, projectId, next);
+      await storeAsset(asset); next.push(asset); setAssets([...next]);
+      if (insert) insertImage(asset, { alt: asset.name, caption: '', width: 60, align: 'center' }, targetId);
+    }
+  }
+  function insertImage(asset: ProjectAsset, options: ImageOptions, targetId = activeIdRef.current) {
+    const target = filesRef.current.find((f) => f.id === targetId); if (!target) return;
+    try {
+      const snippet = imageSnippet(target.mode, target.name, asset.path, options);
+      saveSnapshot(target.id, target.name, target.content, 'Before image insertion').catch(() => {});
+      let content = target.content;
+      const holder = editorRef.current as { _editor?: { getModel: () => { getOffsetAt: (p: unknown) => number } | null; getPosition: () => unknown } } | null;
+      const position = targetId === activeIdRef.current ? holder?._editor?.getPosition() : null;
+      const offset = position ? holder?._editor?.getModel()?.getOffsetAt(position) : undefined;
+      const end = target.mode === 'latex' ? content.lastIndexOf('\\end{document}') : -1;
+      const bodyStart = target.mode === 'latex' ? content.indexOf('\\begin{document}') : -1;
+      const at = target.mode === 'latex' && (offset === undefined || bodyStart >= 0 && offset < bodyStart + 16) ? end >= 0 ? end : content.length : offset !== undefined ? Math.min(offset, end >= 0 ? end : content.length) : content.length;
+      content = content.slice(0, at) + snippet + content.slice(at);
+      if (target.mode === 'latex' && !target.content.trim()) content = '\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n' + snippet + '\n\\end{document}\n';
+      if (target.mode === 'latex' && !/\\usepackage(?:\[[^\]]*\])?\{[^}]*graphicx[^}]*\}/.test(content)) content = content.replace(/\\begin\{document\}/, '\\usepackage{graphicx}\n\\begin{document}');
+      const updated = content;
+      setFiles((prev) => prev.map((f) => f.id === targetId ? { ...f, content: updated, updatedAt: Date.now() } : f)); liveRef.current?.setContent(targetId, content);
+      setShowAssets(false); toast('Image inserted. No AI request was made.', 'success');
+    } catch (e) { toast(String(e), 'error', 6000); }
+  }
+  async function renameImage(asset: ProjectAsset, requested: string) {
+    const path = projectPath(requested);
+    if (assets.some((a) => a.id !== asset.id && a.path === path)) throw new Error('That image path already exists.');
+    if (asset.mime === 'image/png' ? !/\.png$/i.test(path) : !/\.jpe?g$/i.test(path)) throw new Error('Keep the original PNG or JPEG image format when renaming.');
+    const updated = { ...asset, path, name: path.split('/').at(-1)!, updatedAt: Date.now() };
+    await storeAsset(updated);
+    setAssets((prev) => prev.map((a) => a.id === asset.id ? updated : a));
+    for (const file of filesRef.current) {
+      let content = file.content;
+      for (const ref of documentReferences(content)) {
+        try { if (resolveProjectPath(file.name, decodeURI(ref)) === asset.path) content = content.split(ref).join(relativeProjectPath(file.name, path)); } catch { /* external reference */ }
+      }
+      if (content !== file.content) { const text = content; saveSnapshot(file.id, file.name, file.content, 'Before image rename').catch(() => {}); setFiles((prev) => prev.map((f) => f.id === file.id ? { ...f, content: text, updatedAt: Date.now() } : f)); liveRef.current?.setContent(file.id, content); }
+    }
+  }
+  async function importReviewed(incoming: ImportedProject, replace: boolean) {
+    const current = replace ? [] : [...filesRef.current];
+    const imported: ProjectFile[] = [], assetNext = [...assets], paths = new Map<string, string>();
+    for (const document of incoming.documents) {
+      const name = uniqueName([...current, ...imported], projectPath(document.path)); paths.set(document.path, name);
+      imported.push(newProjectFile(name, modeForName(name), document.content));
+    }
+    const prepared: ProjectAsset[] = [];
+    for (const image of incoming.images) { const asset = await prepareAsset(image, projectId, [...assetNext, ...prepared], image.name); paths.set(image.name, asset.path); prepared.push(asset); }
+    for (let i = 0; i < imported.length; i++) {
+      const original = incoming.documents[i].path, document = imported[i];
+      for (const ref of documentReferences(document.content)) { try { const resolved = resolveProjectPath(original, decodeURI(ref)); const mapped = paths.get(resolved); if (mapped) document.content = document.content.split(ref).join(relativeProjectPath(document.name, mapped)); } catch { /* external ref */ } }
+    }
+    for (const asset of prepared) { await storeAsset(asset); assetNext.push(asset); setAssets([...assetNext]); }
+    if (replace) {
+      for (const file of filesRef.current) { await saveSnapshot(file.id, file.name, file.content, 'Before project restore'); liveRef.current?.removeFile(file.id); }
+      clearUndoAction(); await removeAiAction(projectId); undoVersionRef.current++; setUndoAction(null);
+    }
+    const final = [...current, ...imported];
+    if (!final.length) final.push(newProjectFile('main.md', 'markdown', ''));
+    setFiles(final); for (const file of imported) liveRef.current?.addFile(file);
+    const main = incoming.activeName && paths.get(incoming.activeName);
+    setActiveId(final.find((f) => f.name === main)?.id || imported[0]?.id || final[0].id);
+    toast(`Imported ${imported.length} documents and ${prepared.length} images.`, 'success');
+  }
+  async function validateCurrentProject(): Promise<string[]> {
+    const issues = validateProject(filesRef.current, assets.map((a) => a.path));
+    const report = issues.map((i) => `${i.file}: ${i.message}`);
+    if (issues.some((i) => i.severity === 'error')) { setValidationStatus('Needs attention'); return report; }
+    const current = filesRef.current.find((f) => f.id === activeIdRef.current);
+    if (current && (current.mode === 'typst' || current.mode === 'latex')) {
+      const result = current.mode === 'latex' ? await compileLatexProject(runtime, current.content, current.name) : await compileTypstProject(runtime, current.content, current.name);
+      if (activeIdRef.current !== current.id || filesRef.current.find((f) => f.id === current.id)?.content !== current.content) { setValidationStatus('Draft'); return ['The document changed during validation. Validate the latest version again.', ...report]; }
+      if (result.pdf) { report.unshift(`${current.name}: PDF compiled successfully.`); setValidationStatus(issues.length ? 'Needs review' : 'PDF compiled'); }
+      else { report.unshift(`${current.name}: ${result.error || 'Compilation failed.'}`); setValidationStatus('Needs attention'); }
+    } else { report.unshift('Reference and syntax checks complete.'); setValidationStatus(issues.length ? 'Needs review' : 'Validated'); }
+    return report;
+  }
+  function runExport(kind: ExportKind) {
+    const issues = validateProject(filesRef.current, assets.map((a) => a.path));
+    if (kind !== 'zip' && issues.length && !window.confirm(`This is a draft with ${issues.length} validation warning(s). Export anyway?\n${issues.slice(0, 3).map((i) => i.message).join('\n')}`)) return;
+    const task = kind === 'zip' ? exportProjectZip(filesRef.current, runtime) : doExport(kind, docContent, docMode, active?.name, runtime);
+    void Promise.resolve(task).catch((e) => toast(`Export failed: ${String(e)}`, 'error', 7000));
+  }
+
   const applyTemplateToActive = useCallback((id: string) => {
     const t = getTemplate(id);
     const aid = activeIdRef.current;
+    const prior = filesRef.current.find((f) => f.id === aid);
+    if (prior?.content && !window.confirm('Replace the current document with template sample content? Use Project / Import to create a new document instead.')) return;
+    if (prior) saveSnapshot(prior.id, prior.name, prior.content, 'Before template replacement').catch(() => {});
     const sess = liveRef.current;
     setFiles((prev) => prev.map((f) => {
       if (f.id !== aid) return f;
@@ -489,7 +784,9 @@ export default function App() {
   function addFile() {
     const raw = newName.trim() || `untitled.${extForMode(newMode)}`;
     const withExt = raw.includes('.') ? raw : `${raw}.${extForMode(newMode)}`;
-    const name = uniqueName(filesRef.current, withExt);
+    let safe: string; try { safe = projectPath(withExt); } catch (e) { toast(String(e), 'error'); return; }
+    const name = uniqueName(filesRef.current, safe);
+    if (assets.some((a) => a.path === name) || /\.(png|jpe?g|webp|svg|pdf|zip)$/i.test(name)) { toast('Use import or the image library for binary files.', 'error'); return; }
     const mode = raw.includes('.') ? modeForName(name) : newMode;
     const f = newProjectFile(name, mode, '');
     setFiles((prev) => [...prev, f]);
@@ -497,6 +794,36 @@ export default function App() {
     setNewName('');
     liveRef.current?.addFile(f);
     if (mode === 'typst') warmupTypstEngine();
+  }
+
+  function renameDocument(id: string) {
+    const original = filesRef.current.find((file) => file.id === id); if (!original) return;
+    const requested = window.prompt('New project path (folders are allowed):', original.name); if (requested === null || requested === original.name) return;
+    try {
+      const name = projectPath(requested);
+      if (filesRef.current.some((f) => f.id !== id && f.name === name) || assets.some((a) => a.path === name)) throw new Error('That project path already exists.');
+      const mode = modeForName(name);
+      if (mode !== original.mode && !window.confirm('Changing the extension changes the document format without converting its source. Continue?')) return;
+      const next = filesRef.current.map((file) => {
+        const targetName = file.id === id ? name : file.name;
+        let content = file.content;
+        for (const ref of documentReferences(content)) {
+          try {
+            const path = resolveProjectPath(file.name, decodeURI(ref));
+            const resolved = [path, path + '.tex', path + '.bib'].find((p) => filesRef.current.some((f) => f.name === p) || assets.some((a) => a.path === p));
+            if (resolved && (file.id === id || resolved === original.name)) content = content.split(ref).join(relativeProjectPath(targetName, resolved === original.name ? name : resolved));
+          } catch { /* external reference */ }
+        }
+        if (file.id === id || content !== file.content) {
+          saveSnapshot(file.id, file.name, file.content, 'Before rename / move').catch(() => {});
+          liveRef.current?.setMeta(file.id, { name: targetName, mode: file.id === id ? mode : file.mode });
+          liveRef.current?.setContent(file.id, content);
+          return { ...file, name: targetName, mode: file.id === id ? mode : file.mode, content, updatedAt: Date.now() };
+        }
+        return file;
+      });
+      setFiles(next);
+    } catch (e) { toast(String(e), 'error', 6000); }
   }
 
   function removeFile(id: string) {
@@ -534,6 +861,10 @@ export default function App() {
     }
     setFiles(incoming);
     setActiveId(incoming[0].id);
+    undoVersionRef.current++;
+    setUndoAction(null);
+    clearUndoAction();
+    void removeAiAction(projectId).catch((e) => toast(`Undo history cleanup failed: ${String(e)}`, 'error'));
   }
 
   function onDragStart(kind: 'left' | 'right', e: React.MouseEvent) {
@@ -669,7 +1000,7 @@ export default function App() {
       },
     });
     for (const t of TEMPLATES) {
-      acts.push({ id: `tpl-${t.id}`, group: 'Templates', label: `Load ${t.label}`, icon: 'template', run: () => applyTemplateToActive(t.id) });
+      acts.push({ id: `tpl-${t.id}`, group: 'Templates', label: `Replace current with ${t.label}`, icon: 'template', run: () => applyTemplateToActive(t.id) });
     }
     acts.push(
       { id: 'mode-md', group: 'Document', label: 'Switch to Markdown', icon: 'fileText', run: () => switchMode('markdown') },
@@ -677,6 +1008,9 @@ export default function App() {
       { id: 'mode-typ', group: 'Document', label: 'Switch to Typst', icon: 'bolt', run: () => switchMode('typst') },
       { id: 'theme', group: 'View', label: `Theme: switch to ${theme === 'dark' ? 'light' : 'dark'}`, icon: theme === 'dark' ? 'sun' : 'moon', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
       { id: 'recompile', group: 'Document', label: 'Recompile document (Ctrl+Enter)', icon: 'bolt', run: triggerRecompile },
+      ...(undoAction
+        ? [{ id: 'undo-ai', group: 'Document', label: `Undo last AI action: ${undoAction.summary}`, icon: 'undo' as const, run: undoLastAiAction }]
+        : []),
       { id: 'tab-files', group: 'View', label: `${sidebarTab === 'files' ? 'Close' : 'Open'} project files drawer`, icon: 'files', run: () => toggleSidebar('files') },
       { id: 'tab-ai', group: 'View', label: `${sidebarTab === 'ai' ? 'Close' : 'Open'} AI assistant drawer`, icon: 'sparkles', run: () => toggleSidebar('ai') },
       { id: 'tab-outline', group: 'View', label: `${sidebarTab === 'outline' ? 'Close' : 'Open'} document outline`, icon: 'list', run: () => toggleSidebar('outline') },
@@ -707,8 +1041,7 @@ export default function App() {
       acts.push({
         id: `export-${e.kind}`, group: 'Export', label: e.label, icon: 'download',
         run: () => {
-          if (e.kind === 'zip') exportProjectZip(filesRef.current);
-          else doExport(e.kind, docContent, docMode, active?.name);
+          runExport(e.kind);
           toast('Export started', 'success', 2000);
         },
       });
@@ -721,10 +1054,10 @@ export default function App() {
     }
     return acts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, docMode, docContent, theme, sidebarTab, toggleSidebar, triggerRecompile, live, maximized, hidden, selection, applyTemplateToActive, switchMode]);
+  }, [files, docMode, docContent, theme, sidebarTab, toggleSidebar, triggerRecompile, live, maximized, hidden, selection, applyTemplateToActive, switchMode, undoAction, undoLastAiAction]);
 
   return (
-    <div className="app">
+    <ProjectContext.Provider value={runtime}><div className="app">
       <header className="toolbar">
         <div className="brand">
           <span className="brand-mark"><Icon name="bolt" size={13} /></span>
@@ -792,17 +1125,16 @@ export default function App() {
               const v = e.target.value as ExportKind | '';
               e.target.value = '';
               if (!v) return;
-              if (v === 'zip') exportProjectZip(files);
-              else doExport(v, docContent, docMode);
+              runExport(v);
             }}
           >
             <option value="" disabled>Export ▾</option>
-            <option value="pdf">PDF (print)</option>
+            <option value="pdf">PDF</option>
             <option value="typst-pdf" disabled={docMode !== 'typst'}>Typst PDF (vector)</option>
-            <option value="tex">LaTeX .tex</option>
-            <option value="md">Markdown .md</option>
-            <option value="typ">Typst .typ</option>
-            <option value="html">Styled HTML</option>
+            <option value="tex" disabled={docMode !== 'latex'}>LaTeX .tex</option>
+            <option value="md" disabled={docMode !== 'markdown'}>Markdown .md</option>
+            <option value="typ" disabled={docMode !== 'typst'}>Typst .typ</option>
+            <option value="html" disabled={docMode !== 'markdown'}>Styled HTML</option>
             <option value="txt">Plain text</option>
             <option value="zip">Project .zip ({files.length} files)</option>
           </select>
@@ -823,6 +1155,15 @@ export default function App() {
               <Icon name="sparkles" size={14} />
             </button>
           )}
+          {undoAction && (
+            <button
+              className="btn xs"
+              onClick={undoLastAiAction}
+              title={`Undo last AI action: ${undoAction.summary}`}
+            >
+              <Icon name="undo" size={14} /><span className="btn-label optional">Undo AI</span>
+            </button>
+          )}
           <button className="btn xs icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
           </button>
@@ -835,6 +1176,8 @@ export default function App() {
       <main className="panes" data-view={mobileView}>
         {/* Activity Bar Dock on Far Left */}
         <aside className="activity-bar" aria-label="Primary sidebar tools">
+          <button className="act-btn" onClick={() => setShowHub(true)} title="Create, import, templates and backup" aria-label="Project start"><Icon name="plus" size={17} /></button>
+          <button className="act-btn" onClick={() => setShowAssets(true)} title="Images and attachments" aria-label="Images and attachments"><Icon name="image" size={17} /></button>
           <button
             className={`act-btn ${sidebarTab === 'files' ? 'active' : ''}`}
             onClick={() => toggleSidebar('files')}
@@ -913,8 +1256,8 @@ export default function App() {
         </aside>
 
         {/* Collapsible Left Drawer (Files / AI / Outline) */}
-        {sidebarTab !== null && isVisible('left') && (
-          <section className="pane left" style={maximized ? { flex: 1 } : { width: `${leftPct}%` }}>
+        {(
+          <section className="pane left" style={{ ...(maximized ? { flex: 1 } : { width: `${leftPct}%` }), display: sidebarTab !== null && isVisible('left') ? undefined : 'none' }}>
             {sidebarTab === 'files' && (
               <div className="sidebar-drawer filetree-drawer">
                 <div className="pane-head">
@@ -926,28 +1269,7 @@ export default function App() {
                   </span>
                 </div>
                 <div className="filetree-content" style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
-                  {files.map((f) => (
-                    <div
-                      key={f.id}
-                      className={`file-item ${f.id === activeId ? 'active' : ''}`}
-                      onClick={() => setActiveId(f.id)}
-                      title={f.name}
-                    >
-                      <Icon name="fileText" size={13} className="ficon" />
-                      <span className="fname">{f.name}</span>
-                      <span className="fmode">{f.mode === 'markdown' ? 'md' : f.mode === 'latex' ? 'tex' : 'typ'}</span>
-                      {files.length > 1 && (
-                        <button
-                          className="btn xs ghost icon-btn file-del"
-                          title="Delete file"
-                          aria-label={`Delete ${f.name}`}
-                          onClick={(e) => { e.stopPropagation(); removeFile(f.id); }}
-                        >
-                          <Icon name="trash" size={12} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  <ProjectFileTree files={files} activeId={activeId} onSelect={setActiveId} onRename={renameDocument} onDelete={(id) => { const file = filesRef.current.find((f) => f.id === id); if (file && window.confirm(`Delete ${file.name}? Download a backup first if you need it.`)) removeFile(id); }} />
                 </div>
                 <div className="file-add">
                   <input
@@ -969,8 +1291,8 @@ export default function App() {
               </div>
             )}
 
-            {sidebarTab === 'ai' && (
-              <div className="sidebar-drawer ai-drawer">
+            {(
+              <div className="sidebar-drawer ai-drawer" style={{ display: sidebarTab === 'ai' ? undefined : 'none' }}>
                 <div className="pane-head">
                   <span className="pane-title">AI Assistant</span>
                   <span className="pane-actions">
@@ -996,6 +1318,9 @@ export default function App() {
                   servers={servers}
                   theme={theme}
                   files={fileAccess}
+                  sharedAssets={assets.filter((a) => sharedAssetIds.includes(a.id))}
+                  onConsumeSharedAssets={() => setSharedAssetIds([])}
+                  onApplyWorkspace={applyAiWorkspace}
                   onOpenReview={() => setShowReview(true)}
                 />
               </div>
@@ -1080,7 +1405,11 @@ export default function App() {
                 <Icon name="plus" size={13} />
               </button>
             </div>
-            <div className="editor-main" style={{ flex: 1, minHeight: 0 }}>
+            <div className="editor-main" style={{ flex: 1, minHeight: 0 }}
+              onPasteCapture={(e) => { const images = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/')); if (images.length) { e.preventDefault(); e.stopPropagation(); void uploadImages(images, true).catch((err) => toast(String(err), 'error')); } }}
+              onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+              onDropCapture={(e) => { const images = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/')); if (images.length) { e.preventDefault(); e.stopPropagation(); void uploadImages(images, true).catch((err) => toast(String(err), 'error')); } }}
+            >
               <EditorPane
                 key={live ? `live-${live.room}-${active?.id}` : `local-${active?.id}`}
                 value={docContent}
@@ -1127,12 +1456,12 @@ export default function App() {
 
       <footer className="statusbar">
         <span className="stat" title={active?.name}>{active?.name}</span>
-        <span className="stat">{stats.words} words</span>
+        <button className="stat btn xs ghost" onClick={() => setShowHub(true)}>Project / Import</button><span className="stat">{validationStatus}</span><span className="stat">{stats.words} words</span>
         <span className="stat hide-mobile">{stats.chars} chars</span>
         <span className="stat hide-mobile">{stats.lines} lines</span>
         <span className="stat hide-mobile">~{stats.readingTimeMin} min</span>
         <span className="stat hide-mobile" title="Autosaved to browser storage">
-          <Icon name="check" size={11} /> Saved{lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+          <Icon name={saveState === 'error' ? 'x' : 'check'} size={11} /> {saveState === 'error' ? `Save failed: ${saveError}` : saveState === 'saving' ? 'Saving…' : 'Saved'}{saveState === 'saved' && lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </span>
         <span className="spacer" />
         <button
@@ -1279,8 +1608,10 @@ export default function App() {
           </div>
         </div>
       )}
+      {showAssets && <AssetLibraryModal onClose={() => setShowAssets(false)} onUpload={uploadImages} onInsert={insertImage} onRename={renameImage} onDelete={async (asset) => { await removeAsset(asset.id); setAssets((prev) => prev.filter((a) => a.id !== asset.id)); setSharedAssetIds((prev) => prev.filter((id) => id !== asset.id)); }} shared={sharedAssetIds} onShare={setSharedAssetIds} />}
+      {showHub && <ProjectHubModal onClose={closeHub} onCreate={createDocument} onImport={importReviewed} onAI={() => { closeHub(); setSidebarTab('ai'); }} onAssets={() => { closeHub(); setShowAssets(true); }} onBackup={() => runExport('zip')} onValidate={validateCurrentProject} />}
       <Toasts />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={paletteActions} />
-    </div>
+    </div></ProjectContext.Provider>
   );
 }

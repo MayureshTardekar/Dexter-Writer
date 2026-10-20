@@ -1,10 +1,16 @@
 // AI playground conversation history — persisted locally so recent chats
-// survive reloads and can be reopened. Message dumps are trimmed on save.
+// survive reloads and can be reopened. Display text is trimmed on save; retry
+// recovery data is preserved in full.
+
+import type { RetryTurn } from './agent/questionFlow';
 
 export interface StoredMessage {
   role: 'user' | 'assistant';
   text: string;
   badges?: string[];
+  /** Context needed to Retry a resumed missing-information turn. */
+  retry?: RetryTurn;
+  sourceText?: string;
 }
 
 export interface ChatConversation {
@@ -14,7 +20,13 @@ export interface ChatConversation {
   createdAt: number;
   updatedAt: number;
   messages: StoredMessage[];
+  factNotes?: string;
+  writingStyle?: string;
 }
+
+export type SaveConversationResult =
+  | { ok: true }
+  | { ok: false; error: string };
 
 const LS_KEY = 'dexter-write:chat-history:v1';
 const MAX_CONVOS = 20;
@@ -56,11 +68,32 @@ export function titleFor(messages: StoredMessage[]): string {
   return raw.length > 44 ? `${raw.slice(0, 44)}…` : raw;
 }
 
-function trimMessages(messages: StoredMessage[]): StoredMessage[] {
+function clip(text: string, max = MAX_TEXT): string {
+  return text.length > max ? text.slice(0, max) + '\n…(truncated)' : text;
+}
+
+/** Recovery data is copied in full; display-message limits must never apply. */
+function preserveRetry(retry: RetryTurn): RetryTurn {
+  return {
+    prompt: retry.prompt,
+    ...(retry.target ? { target: { ...retry.target } } : {}),
+    flow: {
+      status: retry.flow.status,
+      originalTask: retry.flow.originalTask,
+      questions: retry.flow.questions.map((q) => ({ ...q })),
+      answers: retry.flow.answers.map((a) => ({ ...a })),
+    },
+  };
+}
+
+/** Trim only what the transcript displays. Retry metadata is preserved whole. */
+function trimDisplayMessages(messages: StoredMessage[]): StoredMessage[] {
   return messages.slice(-MAX_MSGS).map((m) => ({
     role: m.role,
-    text: m.text.length > MAX_TEXT ? m.text.slice(0, MAX_TEXT) + '\n…(truncated)' : m.text,
+    text: clip(m.text),
+    ...(m.sourceText ? { sourceText: m.sourceText } : {}),
     ...(m.badges && m.badges.length > 0 ? { badges: m.badges.slice(0, 12) } : {}),
+    ...(m.retry ? { retry: preserveRetry(m.retry) } : {}),
   }));
 }
 
@@ -78,23 +111,26 @@ export function loadConversations(): ChatConversation[] {
   }
 }
 
-function persist(all: ChatConversation[]): void {
+function persist(all: ChatConversation[]): SaveConversationResult {
   try {
     storage().setItem(LS_KEY, JSON.stringify(all.slice(0, MAX_CONVOS)));
-  } catch { /* quota — ignore */ }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Upsert a conversation. Greeting-only chats (no user message) are skipped. */
-export function saveConversation(conv: ChatConversation): void {
-  if (!conv.messages.some((m) => m.role === 'user')) return;
+export function saveConversation(conv: ChatConversation): SaveConversationResult {
+  if (!conv.messages.some((m) => m.role === 'user')) return { ok: true };
   const all = loadConversations().filter((c) => c.id !== conv.id);
   const clean: ChatConversation = {
     ...conv,
     title: titleFor(conv.messages),
-    messages: trimMessages(conv.messages),
+    messages: trimDisplayMessages(conv.messages),
     updatedAt: Date.now(),
   };
-  persist([clean, ...all]);
+  return persist([clean, ...all]);
 }
 
 export function deleteConversation(id: string): ChatConversation[] {

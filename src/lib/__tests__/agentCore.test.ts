@@ -147,6 +147,28 @@ describe('buildSystemPrompt', () => {
   it('embeds the document with numbered lines', () => {
     expect(buildSystemPrompt('markdown', '', 'hello')).toContain('1│hello');
   });
+
+  it('requires missing facts to be requested instead of invented', () => {
+    const p = buildSystemPrompt('markdown', '', '# Alex Carter');
+    expect(p).toContain('request_user_input');
+    expect(p).toMatch(/Never invent or infer/i);
+    expect(p).toMatch(/\[\[NEEDS INPUT:/);
+    expect(p).toMatch(/Preserve supplied facts exactly/i);
+  });
+
+  it('treats template examples as sample data, not user facts', () => {
+    const p = buildSystemPrompt('markdown', '', '# Alex Carter');
+    expect(p).toMatch(/Starter, template, and example content is fictional sample data/i);
+    expect(p).toContain('Alex Carter');
+    expect(p).toContain('Acme Cloud');
+  });
+
+  it('does not impose a mandatory resume formula or action-verb style', () => {
+    const p = buildSystemPrompt('markdown', '', '# Resume');
+    expect(p).not.toMatch(/X-Y-Z formula/);
+    expect(p).not.toMatch(/Start each bullet with a strong action verb/i);
+    expect(p).toMatch(/Do not impose a resume formula/i);
+  });
 });
 
 describe('completion sanitizing', () => {

@@ -68,3 +68,9 @@ scratch*.md
 notes.md
 todo.md
 *.private.md
+
+# Local validation scratch
+.tmp-vitest/
+
+playwright-report/
+test-results/

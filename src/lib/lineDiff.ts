@@ -23,7 +23,7 @@ export function computeHunks(before: string, after: string): DiffHunk[] {
       {
         id: 0, kind: a.length === b.length && before === after ? 'equal' : 'replace',
         origStart: 1, origEnd: a.length, newStart: 1, newEnd: b.length,
-        origLines: a.slice(0, 400), newLines: b.slice(0, 400),
+        origLines: a, newLines: b,
       },
     ];
   }

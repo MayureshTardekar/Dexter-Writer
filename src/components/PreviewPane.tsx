@@ -1,3 +1,6 @@
+import { ProjectContext, useProjectRuntime, compileLatexProject, compileTypstProject } from '../lib/projectRuntime';
+import { resolveProjectPath } from '../lib/projectPaths';
+import type { ComponentProps } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense, type MouseEvent as RMouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,8 +10,8 @@ import rehypeRaw from "rehype-raw";
 import "katex/dist/katex.min.css";
 import { latexToReadable, typstToReadable } from "../lib/docUtils";
 import { rehypeSourceLine } from "../lib/rehypeSourceLine";
-import { renderTypstSvg, warmupTypstEngine } from "../lib/typstEngine";
-import { compileLatexPdf, isLatexEngineReady, isRemoteCompilerConfigured, subscribeLatexStatus } from "../lib/latexEngine";
+import { warmupTypstEngine } from "../lib/typstEngine";
+import { isLatexEngineReady, isRemoteCompilerConfigured, subscribeLatexStatus } from "../lib/latexEngine";
 import { fixLatexError } from "../lib/latexFixer";
 import { toast } from "../lib/toast";
 import type { DocMode } from "../lib/templates";
@@ -342,6 +345,7 @@ function MarkdownPreview({
   pdfMode?: boolean;
   onTogglePdf?: () => void;
 }) {
+  const runtime = useProjectRuntime();
   const rehypePlugins = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const plugins: any[] = [rehypeKatex];
@@ -385,7 +389,14 @@ function MarkdownPreview({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
                 rehypePlugins={rehypePlugins}
+                disallowedElements={['script', 'iframe', 'object', 'embed', 'style', 'link', 'meta', 'form', 'input']}
                 components={{
+                  img({ src, alt, ...props }) {
+                    let url: string | undefined;
+                    try { url = runtime.urls[resolveProjectPath(runtime.activeName, decodeURI(String(src || '')))]; } catch { /* external URL */ }
+                    if (!url && /^https?:/i.test(String(src))) url = String(src);
+                    return url ? <img {...props} src={url} alt={alt || ''} style={{ maxWidth: '100%', ...props.style }} /> : <span className="missing-image" role="alert">Missing image: {src || alt}</span>;
+                  },
                   code(props) {
                     const { children, className, ...rest } = props;
                     const match = /language-(\w+)/.exec(className || "");
@@ -424,6 +435,7 @@ function TypstPreview({
   maximized?: boolean;
   onHide?: () => void;
 }) {
+  const runtime = useProjectRuntime();
   const [svg, setSvg] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -440,7 +452,7 @@ function TypstPreview({
     const my = ++seq.current;
     timer.current = window.setTimeout(async () => {
       try {
-        const res = await renderTypstSvg(content);
+        const res = await compileTypstProject(runtime, content, runtime.activeName, 'svg');
         if (seq.current !== my) return;
         setSvg(res.svg ?? null);
         setDiagnostics(res.diagnostics);
@@ -455,7 +467,7 @@ function TypstPreview({
       }
     }, 700);
     return () => { if (timer.current) window.clearTimeout(timer.current); };
-  }, [content]);
+  }, [content, runtime]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -595,6 +607,7 @@ function LatexPreview({
   fileName?: string;
   onSourceJump?: (info: SourceJump) => void;
 }) {
+  const runtime = useProjectRuntime();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const [syncTex, setSyncTex] = useState<Uint8Array | null>(null);
@@ -696,7 +709,7 @@ function LatexPreview({
     onCompilingChange?.(true);
     const my = ++seq.current;
     try {
-      const res = await compileLatexPdf(src);
+      const res = await compileLatexProject(runtime, src, runtime.activeName);
       if (seq.current !== my) return;
       if (res.success && res.pdfUrl) {
         setPdfUrl(res.pdfUrl);
@@ -722,7 +735,7 @@ function LatexPreview({
         onCompilingChange?.(false);
       }
     }
-  }, [onPdfReady, onCompilingChange]);
+  }, [onPdfReady, onCompilingChange, runtime]);
 
   useEffect(() => {
     if (timer.current) window.clearTimeout(timer.current);
@@ -902,7 +915,7 @@ function LatexPreview({
 }
 
 // Root export
-export default function PreviewPane({
+function PreviewDocument({
   content,
   mode,
   theme,
@@ -936,6 +949,7 @@ export default function PreviewPane({
   fileName?: string;
 }) {
   const [zoom, setZoom] = useState(1.0);
+  const handlePdfReady = useCallback((ready: boolean) => setPdfReady(ready), []);
   const [pdfMode, setPdfMode] = useState(true);
   const [, setPdfReady] = useState(false);
   const [, setCompilingLatex] = useState(false);
@@ -973,7 +987,7 @@ export default function PreviewPane({
         content={content}
         zoom={zoom}
         onZoom={setZoom}
-        onPdfReady={(ready) => setPdfReady(ready)}
+        onPdfReady={handlePdfReady}
         onCompilingChange={setCompilingLatex}
         compileTrigger={(compileTrigger || 0) + manualRecompile}
         onRecompile={handleRecompile}
@@ -1001,7 +1015,7 @@ export default function PreviewPane({
       content={md}
       theme={theme}
       sourceMap={exact}
-      allowHtml={isLatex}
+      allowHtml={true}
       onSourceJump={onSourceJump}
       zoom={zoom}
       onZoom={setZoom}
@@ -1013,4 +1027,10 @@ export default function PreviewPane({
       onTogglePdf={isLatex ? () => setPdfMode(true) : undefined}
     />
   );
+}
+
+export default function PreviewPane(props: ComponentProps<typeof PreviewDocument>) {
+  const runtime = useProjectRuntime();
+  const value = useMemo(() => ({ ...runtime, activeName: props.fileName || runtime.activeName }), [runtime, props.fileName]);
+  return <ProjectContext.Provider value={value}><PreviewDocument {...props} /></ProjectContext.Provider>;
 }

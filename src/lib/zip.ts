@@ -1,7 +1,7 @@
 // Minimal ZIP writer (stored entries, no compression) — valid archives,
 // no dependency. Used for Phase 2 project-bundle export.
 
-function crc32(data: Uint8Array): number {
+export function crc32(data: Uint8Array): number {
   let table: Uint32Array | null = (crc32 as unknown as { _t?: Uint32Array })._t ?? null;
   if (!table) {
     table = new Uint32Array(256);

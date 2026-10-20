@@ -1,3 +1,4 @@
+import { fetchAvailableModels, testModelConnection, readModelCapabilities, type ModelCapabilities } from '../lib/modelCapabilities';
 import { useState } from 'react';
 import { PROVIDERS, resolveProvider } from '../lib/aiGateway';
 import { vaultDelete } from '../lib/vault';
@@ -37,6 +38,11 @@ interface TestState {
 
 export default function ByokModal({ provider, setProvider, model, setModel, baseUrl, setBaseUrl, apiKey, setApiKey, saveKey, onClose }: Props) {
   const [show, setShow] = useState(false);
+  const [probe, setProbe] = useState<ModelCapabilities | null>(null);
+  const [probeError, setProbeError] = useState('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [probing, setProbing] = useState(false);
+  const [checkVision, setCheckVision] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customs, setCustoms] = useState<CustomProvider[]>(() => loadCustomProviders());
   const [editing, setEditing] = useState<{ id?: string; name: string; baseUrl: string; model: string; noKey: boolean } | null>(null);
@@ -49,6 +55,7 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
   const hasBaseUrl = Boolean(info.defaultBaseUrl);
 
   function applyProvider(id: string, m?: string, b?: string) {
+    setProbe(null); setAvailableModels([]);
     setProvider(id);
     if (m !== undefined) {
       setModel(m);
@@ -230,13 +237,15 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
           ) : (
             <>
               <label>Model</label>
-              <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={info.defaultModel} />
+              <input list="available-ai-models" value={model} onChange={(e) => { setModel(e.target.value); setProbe(null); }} placeholder={info.defaultModel || 'Model ID from your provider'} />
+              <datalist id="available-ai-models">{availableModels.map((id) => <option key={id} value={id} />)}</datalist>
+              <button className="btn xs" disabled={probing || info.needsKey && !apiKey} onClick={async () => { setProbing(true); setProbeError(''); try { setAvailableModels(await fetchAvailableModels({ provider, baseUrl, apiKey })); } catch (e) { setProbeError(String(e)); } finally { setProbing(false); } }}>Load available models</button>
               {hasBaseUrl && (
                 <>
                   <label>Base URL</label>
                   <input
                     value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
+                    onChange={(e) => { setBaseUrl(e.target.value); setProbe(null); }}
                     placeholder={info.defaultBaseUrl || 'http://localhost:11434/v1'}
                   />
                 </>
@@ -251,6 +260,13 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
                 </>
               )}
               <p className="muted small">{info.help}</p>
+              <div className="connection-probe">
+                <label className="row"><input type="checkbox" checked={checkVision} onChange={(e) => setCheckVision(e.target.checked)} />Also check image input using a test pixel (no project images are sent)</label>
+                <button className="btn" disabled={probing || !model.trim() || info.needsKey && !apiKey} onClick={async () => { setProbing(true); setProbeError(''); setProbe(null); try { setProbe(await testModelConnection({ provider, model, baseUrl, apiKey }, checkVision)); } catch (e) { setProbeError(String(e)); } finally { setProbing(false); } }}>{probing ? 'Checking model…' : 'Test model connection and tools'}</button>
+                <p className="muted small">Uses a small model request. Tools: {(probe || readModelCapabilities(provider, model, baseUrl))?.tools === true ? 'verified' : 'not verified'} · Images: {(probe || readModelCapabilities(provider, model, baseUrl))?.vision === true ? 'accepted in probe' : 'not verified'}</p>
+                {probe && !probe.tools && <p role="alert">The model replied but did not call the probe tool. Editing support is unverified; choose another model if edits do not run.</p>}
+                {probeError && <p className="error" role="alert">{probeError}</p>}
+              </div>
               {isCustom && (
                 <div className="row">
                   <button className="btn xs" onClick={openEditExisting}>Edit endpoint</button>

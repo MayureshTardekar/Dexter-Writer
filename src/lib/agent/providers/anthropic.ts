@@ -14,7 +14,7 @@ const API_URL = 'https://api.anthropic.com/v1/messages';
 interface TextBlock { type: 'text'; text: string }
 interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
 interface ToolResultBlock { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
-type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock;
+type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
 
 interface AnthropicMessage {
   role: 'user' | 'assistant';
@@ -74,7 +74,7 @@ export function toAnthropicMessages(messages: AgentMessage[]): AnthropicMessage[
     }
 
     if (!m.content) continue;
-    out.push({ role: 'user', content: m.content });
+    out.push({ role: 'user', content: m.images?.length ? [{ type: 'text', text: m.content }, ...m.images.map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mime, data: img.data } }))] : m.content });
   }
   return out;
 }

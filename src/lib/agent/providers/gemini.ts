@@ -15,6 +15,7 @@ import { errorBody, readSseLines, tryParseJson } from '../sse';
 const API_ROOT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 interface GeminiPart {
+  inlineData?: { mimeType: string; data: string };
   text?: string;
   functionCall?: { name: string; args?: Record<string, unknown> };
   functionResponse?: { name: string; response: Record<string, unknown> };
@@ -65,7 +66,7 @@ export function toGeminiContents(messages: AgentMessage[]): GeminiContent[] {
     }
 
     if (!m.content) continue;
-    out.push({ role: 'user', parts: [{ text: m.content }] });
+    out.push({ role: 'user', parts: [{ text: m.content }, ...(m.images ?? []).map((img) => ({ inlineData: { mimeType: img.mime, data: img.data } }))] });
   }
   return out;
 }

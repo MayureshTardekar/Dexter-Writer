@@ -8,6 +8,8 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400',
+  'Access-Control-Expose-Headers': 'X-Page-Count, X-Compile-Ms, X-Project-Files',
+  'X-Project-Files': '1',
 };
 
 const server = http.createServer(async (req, res) => {
@@ -23,7 +25,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST') {
     let body = '';
-    req.on('data', (chunk) => { body += chunk; });
+    req.on('data', (chunk) => { body += chunk; if (body.length > 6 * 1024 * 1024) req.destroy(); });
     req.on('end', async () => {
       try {
         let payload;
@@ -40,7 +42,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const t0 = Date.now();
-        const { pdf, pageCount } = await compileLatexToPdf(tex);
+        const { pdf, pageCount } = await compileLatexToPdf(tex, 25000, payload.files || []);
         const compileMs = Date.now() - t0;
 
         res.writeHead(200, {

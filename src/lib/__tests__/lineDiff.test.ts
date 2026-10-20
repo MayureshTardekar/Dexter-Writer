@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeHunks } from '../lineDiff';
+import { applyHunks, computeHunks } from '../lineDiff';
 
 describe('Line Diff Engine', () => {
   it('returns empty or equal hunks for identical content', () => {
@@ -37,5 +37,13 @@ describe('Line Diff Engine', () => {
     const deleteHunk = hunks.find((h) => h.kind === 'delete' || h.kind === 'replace');
     expect(deleteHunk).toBeDefined();
     expect(deleteHunk?.origLines).toContain('To Be Deleted');
+  });
+
+  it('keeps full content when accepting or rejecting very large diffs', () => {
+    const before = Array.from({ length: 1500 }, (_, i) => `old ${i}`).join('\n');
+    const after = Array.from({ length: 1500 }, (_, i) => `new ${i}`).join('\n');
+    const hunks = computeHunks(before, after);
+    expect(applyHunks(before, hunks, new Set([0]))).toBe(after);
+    expect(applyHunks(before, hunks, new Set())).toBe(before);
   });
 });

@@ -34,9 +34,11 @@ describe('Autonomous Document Review Agent', () => {
   });
 
   describe('buildAuditPrompt', () => {
-    it('includes ATS action verbs and metrics for resume preset', () => {
+    it('includes resume evidence checks without inventing metrics', () => {
       const prompt = buildAuditPrompt('markdown', 'resume');
-      expect(prompt).toContain('past-tense action verbs');
+      expect(prompt).toContain('suggest action verbs only when they improve the requested tone');
+      expect(prompt).toContain('Never invent a metric');
+      expect(prompt).not.toContain('past-tense action verbs');
       expect(prompt).toContain('quantifiable metrics');
       expect(prompt).toContain('ATS friendliness');
     });

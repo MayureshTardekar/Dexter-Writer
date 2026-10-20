@@ -14,7 +14,7 @@ import { errorBody, readSseLines, tryParseJson } from '../sse';
 
 interface OpenAiMessage {
   role: string;
-  content: string | null;
+  content: string | null | Array<{ type: string; text?: string; image_url?: { url: string } }>;
   tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
   tool_call_id?: string;
 }
@@ -65,7 +65,7 @@ export function toOpenAiMessages(messages: AgentMessage[]): OpenAiMessage[] {
       });
       continue;
     }
-    out.push({ role: m.role, content: m.content });
+    out.push({ role: m.role, content: m.role === 'user' && m.images?.length ? [{ type: 'text', text: m.content }, ...m.images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } }))] : m.content });
   }
   return out;
 }
@@ -214,7 +214,7 @@ export async function* streamOpenAiCompatible(opts: ProviderCallOptions): Provid
   const messages = toOpenAiMessages(opts.messages);
   const toolDefs = toOpenAiTools(opts.tools);
 
-  let useTools = toolDefs.length > 0;
+  const useTools = toolDefs.length > 0;
   let useStream = opts.stream !== false;
   let backedOff = false;
 
@@ -241,9 +241,7 @@ export async function* streamOpenAiCompatible(opts: ProviderCallOptions): Provid
 
     // Model doesn't support function calling — run tool-free rather than fail.
     if (useTools && (res.status === 400 || res.status === 422) && /tool|function/i.test(err)) {
-      useTools = false;
-      yield { type: 'notice', message: 'This model does not support tool calling — answering in chat only. Switch model in BYOK for document editing.' };
-      continue;
+      throw new Error('This model rejected editing tools. Choose a model with tool support in AI Settings. No edits were applied.');
     }
     // Model or gateway doesn't support SSE.
     if (useStream && (res.status === 400 || res.status === 404 || res.status === 422) && /stream/i.test(err)) {

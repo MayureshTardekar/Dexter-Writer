@@ -1,3 +1,4 @@
+import { projectPath } from '../../projectPaths';
 import type { FileAccess, ToolCall, ToolDef } from '../types';
 import type { ToolOutcome } from './document';
 import { applyStringEdit } from './document';
@@ -10,8 +11,9 @@ import { applyStringEdit } from './document';
  * that gap through the {@link FileAccess} port, which `App.tsx` implements over
  * its `files` / `setFiles` state — the engine never imports React.
  *
- * Note: writes here are applied directly (the caller snapshots first); they do
- * NOT flow through the per-hunk diff modal, which only reviews the active file.
+ * Writes go through the caller's FileAccess port. The chat caller supplies a
+ * staged overlay, so create/edit operations join the active document in one
+ * review workspace instead of touching project files immediately.
  */
 
 export const FILE_TOOL_NAMES = new Set(['list_files', 'read_file', 'create_file', 'edit_file']);
@@ -22,9 +24,8 @@ const VALID_MODES = new Set(['markdown', 'latex', 'typst']);
 
 function nameProblem(name: string): string | null {
   if (!name) return 'name is required.';
-  if (/[\\/]/.test(name) || name.includes('..')) {
-    return `invalid name "${name}" — the project is a flat list of files, so names cannot contain "/", "\\" or "..".`;
-  }
+  if (/\.(png|jpe?g|webp|gif|svg|pdf|zip)$/i.test(name)) return 'Use the image library or import controls for binary files; this tool writes text only.';
+  try { projectPath(name); } catch (e) { return String(e); }
   if (name.length > 120) return `invalid name — too long (${name.length} chars).`;
   return null;
 }
@@ -100,8 +101,8 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
         ? ` NOTE: renamed to "${finalName}" to avoid a name collision — refer to it as "${finalName}" from now on.`
         : '';
       return {
-        content: `Created "${finalName}" (${mode}, ${content.split('\n').length} lines). It was added to the project and is now the active file.${renamed}`,
-        badge: `📁 Created ${finalName}`,
+        content: `Staged creation of "${finalName}" (${mode}, ${content.split('\n').length} lines) for review. Use edit_file to refine it before the user applies the workspace.${renamed}`,
+        badge: `📁 Staged ${finalName}`,
       };
     }
 
@@ -109,9 +110,9 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
       const name = String(a.name ?? '');
       const problem = nameProblem(name);
       if (problem) return { content: `edit_file failed: ${problem}`, isError: true };
-      // The active document has its own tool, which stages into diff review
-      // and keeps the turn's staged content coherent. Routing the active file
-      // through here would bypass review and be clobbered by a later edit.
+      // The active document has its own tool, which keeps the turn's staged
+      // content coherent. Routing the active file through here would bypass
+      // the active-document tool result and be clobbered by a later edit.
       if (name === files.activeName()) {
         return {
           content: `edit_file cannot target "${name}" because it is the ACTIVE document. Use edit_document instead.`,
@@ -128,9 +129,9 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
       if (!ok) return { content: `edit_file failed: could not write "${name}".`, isError: true };
       return {
         // Deliberately drop newContent: this edited another file, not the
-        // active document, so the caller must not stage it as a diff.
-        content: `${outcome.content} Applied directly to "${name}" (a snapshot was saved first).`,
-        badge: `✏️ Edited ${name}`,
+        // active document. The caller's staged FileAccess overlay records it.
+        content: `${outcome.content} Staged for review in "${name}".`,
+        badge: `✏️ Staged ${name}`,
       };
     }
 
@@ -162,7 +163,7 @@ export const FILE_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'create_file',
-    description: 'Create a new file in the project and make it active. Names are flat — no folders. The extension sets the format (.md, .tex, .typ).',
+    description: 'Stage a new file in the project for the same review as all other AI edits. Use relative project paths; folders are supported. The extension sets the format (.md, .tex, .typ).',
     kind: 'file',
     parameters: {
       type: 'object',
@@ -178,7 +179,7 @@ export const FILE_TOOL_DEFS: ToolDef[] = [
     name: 'edit_file',
     description:
       'Exact-string replace in a NON-ACTIVE project file. Same matching rules as edit_document: old_string '
-      + 'must match exactly and uniquely. Applied directly rather than staged for diff review, so be precise.',
+      + 'must match exactly and uniquely. Staged for one review with all other AI edits.',
     kind: 'file',
     parameters: {
       type: 'object',

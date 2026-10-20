@@ -1,6 +1,7 @@
-import type { AgentMessage, StreamEvent, ToolCall, ToolDef, ToolResult } from './types';
-import { isAbortError } from './types';
+import type { AgentImage, AgentMessage, StreamEvent, ToolCall, ToolDef, ToolResult } from './types';
+import { PAUSE_TOOL_NAME, isAbortError } from './types';
 import { streamProvider } from './providers';
+import type { ProviderRequest } from './providers';
 
 /**
  * The agent loop. See AI_AGENT_ROADMAP.md §6.
@@ -23,6 +24,7 @@ export interface AgentRunOptions {
   /** Prior turns, already trimmed by the caller. */
   history: AgentMessage[];
   userText: string;
+  images?: AgentImage[];
   tools: ToolDef[];
   executeTool: (call: ToolCall) => Promise<ToolResult>;
   signal?: AbortSignal;
@@ -31,6 +33,8 @@ export interface AgentRunOptions {
   temperature?: number;
   /** When provided, every message the loop builds is pushed here for persistence. */
   transcript?: AgentMessage[];
+  /** Override the provider transport. Tests use this to script model responses. */
+  stream?: (req: ProviderRequest) => ReturnType<typeof streamProvider>;
 }
 
 const DEFAULT_MAX_ROUNDS = 8;
@@ -45,11 +49,12 @@ function errorText(e: unknown): string {
 export async function* runAgent(opts: AgentRunOptions): AsyncGenerator<StreamEvent, void, void> {
   const maxRounds = opts.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const maxTools = opts.maxToolsPerRound ?? DEFAULT_MAX_TOOLS_PER_ROUND;
+  const stream = opts.stream ?? streamProvider;
 
   const messages: AgentMessage[] = [
     { role: 'system', content: opts.system },
     ...opts.history,
-    { role: 'user', content: opts.userText },
+    { role: 'user', content: opts.userText, ...(opts.images?.length ? { images: opts.images } : {}) },
   ];
   const record = (m: AgentMessage) => {
     messages.push(m);
@@ -70,7 +75,7 @@ export async function* runAgent(opts: AgentRunOptions): AsyncGenerator<StreamEve
       let text = '';
       const calls: ToolCall[] = [];
 
-      for await (const chunk of streamProvider({
+      for await (const chunk of stream({
         provider: opts.provider,
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
@@ -88,7 +93,6 @@ export async function* runAgent(opts: AgentRunOptions): AsyncGenerator<StreamEve
           yield { type: 'notice', message: chunk.message };
         } else {
           calls.push(chunk.call);
-          yield { type: 'tool_call', call: chunk.call };
         }
       }
 
@@ -104,10 +108,22 @@ export async function* runAgent(opts: AgentRunOptions): AsyncGenerator<StreamEve
         return;
       }
 
-      const batch = calls.slice(0, maxTools);
-      if (calls.length > batch.length) {
+      const pauseCall = calls.find((c) => c.name === PAUSE_TOOL_NAME);
+      // If the model asked for missing facts, run ONLY that call. Any edit in
+      // the same batch must wait: guessing and editing before the answer is
+      // exactly the failure mode this tool exists to prevent.
+      const batch = pauseCall ? [pauseCall] : calls.slice(0, maxTools);
+      if (!pauseCall && calls.length > batch.length) {
         yield { type: 'notice', message: `Capped at ${maxTools} tool calls this round (model requested ${calls.length}).` };
       }
+      if (pauseCall && calls.length > 1) {
+        yield {
+          type: 'notice',
+          message: `Held ${calls.length - 1} other tool call${calls.length === 2 ? '' : 's'} until you answer the question.`,
+        };
+      }
+
+      for (const call of batch) yield { type: 'tool_call', call };
 
       // Only the executed calls go into the trace, so every tool_call id has a
       // matching tool result — providers reject unmatched ids.
@@ -148,6 +164,10 @@ export async function* runAgent(opts: AgentRunOptions): AsyncGenerator<StreamEve
           isError: result.isError,
         });
         yield { type: 'tool_result', result };
+        if (result.pause) {
+          yield { type: 'done', stopReason: 'needs_input' };
+          return;
+        }
       }
 
       // Free-tier models often retry the same failing call forever.

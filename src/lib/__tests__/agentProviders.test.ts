@@ -225,18 +225,19 @@ describe('provider routing', () => {
     expect(providerKind('anthropic')).toBe('anthropic');
   });
 
-  it('falls back to provider defaults for blank model and baseUrl', () => {
-    const conn = resolveConnection('groq', { apiKey: 'k', baseUrl: '  ', model: '' });
+  it('uses a provider endpoint but requires an explicitly selected model', () => {
+    expect(() => resolveConnection('groq', { apiKey: 'k', baseUrl: '  ', model: '' })).toThrow(/Choose.*model/);
+    const conn = resolveConnection('groq', { apiKey: 'k', baseUrl: '  ', model: 'selected-model' });
     expect(conn.baseUrl).toBe('https://api.groq.com/openai/v1');
-    expect(conn.model).toBe('llama-3.3-70b-versatile');
+    expect(conn.model).toBe('selected-model');
     expect(conn.apiKey).toBe('k');
   });
 
   it('never sends a key to Ollama', () => {
-    expect(resolveConnection('ollama', { apiKey: 'secret', baseUrl: '', model: '' }).apiKey).toBe('');
+    expect(resolveConnection('ollama', { apiKey: 'secret', baseUrl: '', model: 'local-model' }).apiKey).toBe('');
   });
 
   it('falls back to the default provider for an unknown id', () => {
-    expect(resolveConnection('nope', { apiKey: '', baseUrl: '', model: '' }).kind).toBe('gemini');
+    expect(resolveConnection('nope', { apiKey: '', baseUrl: '', model: 'test-model' }).kind).toBe('gemini');
   });
 });

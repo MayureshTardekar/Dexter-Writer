@@ -10,7 +10,7 @@
 /** One well-formed conversation turn. */
 export type AgentMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string; images?: AgentImage[] }
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | { role: 'tool'; toolCallId: string; name: string; content: string; isError?: boolean };
 
@@ -20,6 +20,13 @@ export interface ToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
+}
+
+/** A focused missing-information question shown to the user. */
+export interface MissingInfoQuestion {
+  question: string;
+  /** Optional short explanation of why the fact is needed. */
+  reason?: string;
 }
 
 /** The outcome of running a {@link ToolCall}. */
@@ -33,7 +40,14 @@ export interface ToolResult {
   newContent?: string;
   /** Short label for the chat UI, e.g. `⚡ Replaced lines 12-18`. */
   badge?: string;
+  /** When true, the loop stops and waits for the user instead of continuing to edit. */
+  pause?: boolean;
+  /** Questions the user must answer before the original task can resume. */
+  questions?: MissingInfoQuestion[];
 }
+
+/** Tool name that pauses an agent turn until the user supplies missing facts. */
+export const PAUSE_TOOL_NAME = 'request_user_input';
 
 /** `read` and `external` are side-effect free; `doc` and `file` mutate state. */
 export type ToolKind = 'read' | 'doc' | 'file' | 'external';
@@ -57,7 +71,7 @@ export type StreamEvent =
   | { type: 'error'; message: string; fatal: boolean }
   | { type: 'done'; stopReason: StopReason };
 
-export type StopReason = 'complete' | 'aborted' | 'max_rounds' | 'error';
+export type StopReason = 'complete' | 'aborted' | 'max_rounds' | 'needs_input' | 'error';
 
 /**
  * Lets the engine read and write the surrounding project without importing
@@ -74,6 +88,9 @@ export interface FileAccess {
    */
   create(name: string, mode: string, content: string): string | null;
   activeName(): string;
+  setActive?(name: string): boolean;
+  /** Stable project-file id for an existing name, when the host can provide one. */
+  idOf?(name: string): string | null;
 }
 
 /** What a provider adapter receives. */
@@ -107,3 +124,5 @@ export function isAbortError(e: unknown): boolean {
   if (e instanceof Error && (e.name === 'AbortError' || e.message === ABORT_MESSAGE)) return true;
   return false;
 }
+
+export interface AgentImage { mime: string; data: string; name: string }

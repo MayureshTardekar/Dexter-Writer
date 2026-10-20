@@ -62,10 +62,10 @@ export function buildAuditPrompt(
   let criteria = '';
   if (preset === 'resume') {
     criteria = `
-- Check that experience bullets start with strong past-tense action verbs (e.g. Architected, Accelerated, Reduced).
-- Ensure statements include quantifiable metrics/impact (%, $, hours, scale). Calculate the approximate percentage of bullet points with concrete metrics as "quantifiableMetricScore".
+- Check that experience bullets describe the user's actual work clearly; suggest action verbs only when they improve the requested tone.
+- Where supplied, preserve quantifiable metrics/impact (%, $, hours, scale). Never invent a metric, employer, qualification, or achievement. Ask for evidence before suggesting a stronger factual claim. Calculate the approximate percentage of bullet points with concrete metrics as "quantifiableMetricScore".
 - Check for ATS friendliness: avoid multi-column tables and non-standard symbols.
-- Identify weak passive phrasing (e.g. "Responsible for", "Worked on") and propose punchy rewrites.`;
+- Identify unclear phrasing and offer optional rewrites that preserve meaning and evidence. Do not impose a voice or resume formula.`;
 
     if (jobDescription && jobDescription.trim()) {
       criteria += `

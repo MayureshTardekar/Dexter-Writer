@@ -289,6 +289,33 @@ describe('tool registry', () => {
     const names = buildToolDefs(ctx).map((t) => t.name);
     expect(names).toContain('edit_document');
     expect(names).toContain('search_document');
+    expect(names).toContain('request_user_input');
+  });
+
+  it('returns a pause result with normalized questions', async () => {
+    const r = await executeTool(ctx, call('request_user_input', {
+      questions: [
+        { question: '  What is your full name?  ', reason: 'The template uses a sample name.' },
+        { question: 'What is your full name?' },
+        { question: 'Which university did you attend?' },
+      ],
+    }));
+
+    expect(r.isError).toBeFalsy();
+    expect(r.pause).toBe(true);
+    expect(r.newContent).toBeUndefined();
+    expect(r.questions).toEqual([
+      { question: 'What is your full name?', reason: 'The template uses a sample name.' },
+      { question: 'Which university did you attend?' },
+    ]);
+    expect(r.badge).toMatch(/2 missing details/);
+  });
+
+  it('rejects an empty question list so the model can recover', async () => {
+    const r = await executeTool(ctx, call('request_user_input', { questions: [] }));
+    expect(r.isError).toBe(true);
+    expect(r.pause).toBeFalsy();
+    expect(r.content).toMatch(/1 and 5/i);
   });
 
   it('attaches the call id to every result', async () => {

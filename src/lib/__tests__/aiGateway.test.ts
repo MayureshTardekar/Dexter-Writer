@@ -52,12 +52,12 @@ describe('detectDocMacros — template-aware prompting', () => {
 });
 
 describe('PROVIDERS registry', () => {
-  it('includes NVIDIA NIM with integrate endpoint and muse-glimmer default', async () => {
+  it('includes NVIDIA NIM with its endpoint and no guessed model', async () => {
     const { PROVIDERS } = await import('../aiGateway');
     const nvidia = PROVIDERS.find((p) => p.id === 'nvidia');
     expect(nvidia).toBeDefined();
     expect(nvidia?.defaultBaseUrl).toBe('https://integrate.api.nvidia.com/v1');
-    expect(nvidia?.defaultModel).toBe('meta/muse-glimmer-30b');
+    expect(nvidia?.defaultModel).toBe('');
     expect(nvidia?.needsKey).toBe(true);
   });
 

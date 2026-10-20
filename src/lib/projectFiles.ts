@@ -1,5 +1,4 @@
 import type { DocMode } from './templates';
-import { getTemplate } from './templates';
 
 // Phase 2: multi-file project store (file tree + tabs).
 // Migrates the Phase 1 single-document localStorage automatically.
@@ -38,20 +37,17 @@ export function newProjectFile(name: string, mode: DocMode, content = ''): Proje
 
 function defaults(): ProjectFile[] {
   const now = Date.now();
-  return [
-    { id: uid(), name: 'main.md', mode: 'markdown', content: getTemplate('api-md').content, updatedAt: now },
-    { id: uid(), name: 'resume.typ', mode: 'typst', content: getTemplate('resume-typ').content, updatedAt: now },
-    { id: uid(), name: 'paper.tex', mode: 'latex', content: getTemplate('paper-tex').content, updatedAt: now },
-  ];
+  return [{ id: uid(), name: 'main.md', mode: 'markdown', content: '', updatedAt: now }];
 }
 
 export function loadProject(): { files: ProjectFile[]; activeId: string } {
   try {
     const raw = localStorage.getItem(LS_PROJECT);
     if (raw) {
-      const files = JSON.parse(raw) as ProjectFile[];
+      const stored = JSON.parse(raw);
+      const files = (Array.isArray(stored) ? stored : stored?.version === 2 ? stored.files : null) as ProjectFile[];
       if (Array.isArray(files) && files.length > 0) {
-        const activeId = localStorage.getItem(LS_ACTIVE) || files[0].id;
+        const activeId = (!Array.isArray(stored) && typeof stored.activeId === 'string' ? stored.activeId : localStorage.getItem(LS_ACTIVE)) || files[0].id;
         const ok = files.some((f) => f.id === activeId) ? activeId : files[0].id;
         return { files, activeId: ok };
       }
@@ -70,14 +66,14 @@ export function loadProject(): { files: ProjectFile[]; activeId: string } {
   return { files, activeId: files[0].id };
 }
 
-export function saveProject(files: ProjectFile[], activeId: string): void {
+export function saveProject(files: ProjectFile[], activeId: string): { ok: true } | { ok: false; error: string } {
   try {
-    localStorage.setItem(LS_PROJECT, JSON.stringify(files));
-    localStorage.setItem(LS_ACTIVE, activeId);
-  } catch { /* quota — ignore */ }
+    localStorage.setItem(LS_PROJECT, JSON.stringify({ version: 2, files, activeId }));
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
 }
 
-export function uniqueName(files: ProjectFile[], base: string): string {
+export function uniqueName(files: ReadonlyArray<Pick<ProjectFile, 'name'>>, base: string): string {
   if (!files.some((f) => f.name === base)) return base;
   const dot = base.lastIndexOf('.');
   const stem = dot > 0 ? base.slice(0, dot) : base;

@@ -1,7 +1,15 @@
 import { stripToPlainText } from './docUtils';
 import type { DocMode } from './templates';
-import { compileLatexPdf } from './latexEngine';
-import { compileTypstPdf } from './typstEngine';
+import { compileLatexProject, compileTypstProject, type ProjectRuntime } from './projectRuntime';
+import { blobDataUrl } from './assets';
+import { resolveProjectPath } from './projectPaths';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeRaw from 'rehype-raw';
+import rehypeKatex from 'rehype-katex';
 import { downloadZip } from './zip';
 import { toast } from './toast';
 import type { ProjectFile } from './projectFiles';
@@ -24,7 +32,18 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function buildStandaloneHtml(title: string, bodyMarkdown: string): string {
+export function buildStandaloneHtml(title: string, bodyMarkdown: string, images: Record<string, string> = {}, main = 'main.md'): string {
+  const body = renderToStaticMarkup(createElement(ReactMarkdown, {
+    remarkPlugins: [remarkGfm, remarkMath], rehypePlugins: [rehypeRaw, rehypeKatex],
+    disallowedElements: ['script', 'iframe', 'object', 'embed', 'style', 'link', 'meta', 'form', 'input'],
+    components: { img: ({ src, alt, ...props }) => {
+      let resolved: string | undefined;
+      try { resolved = images[resolveProjectPath(main, decodeURI(String(src || '')))]; } catch { /* external ref */ }
+      const value = resolved || (/^https?:/i.test(String(src)) ? src : undefined);
+      return value ? createElement('img', { ...props, src: value, alt: alt || '', style: { maxWidth: '100%', ...props.style } }) : createElement('span', { className: 'missing-image' }, `Missing image: ${src || alt || ''}`);
+    } },
+    children: bodyMarkdown,
+  }));
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -38,9 +57,28 @@ table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:6p
 @media print{body{margin:0;max-width:none}}
 </style></head><body>
 <h1>${escapeHtml(title)}</h1>
-<pre>${escapeHtml(bodyMarkdown)}</pre>
+${body}
 <p><em>Exported from Dexter Write</em></p>
 </body></html>`;
+}
+
+async function printMarkdown(title: string, source: string, project: ProjectRuntime, main: string): Promise<void> {
+  const images: Record<string, string> = {};
+  for (const asset of project.assets) images[asset.path] = await blobDataUrl(asset.blob);
+  const frame = document.createElement('iframe');
+  frame.title = 'Print document';
+  frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;height:1000px;border:0';
+  const loaded = new Promise<void>((resolve) => { frame.onload = () => resolve(); });
+  frame.srcdoc = buildStandaloneHtml(title, source, images, main);
+  document.body.appendChild(frame);
+  try {
+    await loaded;
+    const doc = frame.contentDocument!;
+    await doc.fonts.ready;
+    await Promise.all(Array.from(doc.images).map((image) => image.decode()));
+    frame.contentWindow!.focus();
+    frame.contentWindow!.print();
+  } finally { window.setTimeout(() => frame.remove(), 60000); }
 }
 
 export function resolveExportFilename(
@@ -73,18 +111,19 @@ export function resolveExportFilename(
   }
 }
 
-export function doExport(kind: ExportKind, content: string, mode: DocMode, docName?: string): void {
+export async function doExport(kind: ExportKind, content: string, mode: DocMode, docName = 'main.md', project: ProjectRuntime = { files: [], assets: [], urls: {}, activeName: docName, revision: 0 }): Promise<void> {
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = resolveExportFilename(kind, docName, stamp);
   const stem = docName?.trim()
     ? docName.replace(/\.[^/.]+$/, '')
     : `document-${stamp}`;
 
+  if (kind === 'pdf' && mode === 'typst') return doExport('typst-pdf', content, mode, docName, project);
   if (kind === 'pdf') {
     if (mode === 'latex') {
-      void (async () => {
-        toast('Compiling Overleaf-exact PDF…', 'info', 3000);
-        const res = await compileLatexPdf(content);
+      {
+        toast('Compiling PDF…', 'info', 3000);
+        const res = await compileLatexProject(project, content, docName);
         if (res.pdf) {
           const blob = new Blob([new Uint8Array(res.pdf)], { type: 'application/pdf' });
           const url = URL.createObjectURL(blob);
@@ -99,11 +138,11 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode, docNa
         } else {
           toast(`PDF compilation failed: ${res.error || 'Check log'}`, 'error', 6000);
         }
-      })();
+      }
       return;
     }
-    // Print-styled engine: preview pane has print CSS, window.print() -> Save as PDF
-    window.print();
+    // A dedicated printable document also works when the preview pane is hidden.
+    await printMarkdown(stem, content, project, docName);
     return;
   }
   if (kind === 'tex') {
@@ -119,7 +158,10 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode, docNa
     return;
   }
   if (kind === 'html') {
-    downloadFile(filename, buildStandaloneHtml(stem, content), 'text/html;charset=utf-8');
+    if (mode !== 'markdown') throw new Error('Styled HTML export is available for Markdown. Use PDF or project ZIP for LaTeX and Typst.');
+    const images: Record<string, string> = {};
+    for (const asset of project.assets) images[asset.path] = await blobDataUrl(asset.blob);
+    downloadFile(filename, buildStandaloneHtml(stem, content, images, docName), 'text/html;charset=utf-8');
     return;
   }
   if (kind === 'typ') {
@@ -127,8 +169,8 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode, docNa
     return;
   }
   if (kind === 'typst-pdf') {
-    void (async () => {
-      const res = await compileTypstPdf(content);
+    {
+      const res = await compileTypstProject(project, content, docName);
       if (res.pdf) {
         const blob = new Blob([new Uint8Array(res.pdf)], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
@@ -142,7 +184,7 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode, docNa
       } else {
         toast(`Typst PDF failed: ${res.error || res.diagnostics.join('\n') || 'unknown error'}`, 'error', 7000);
       }
-    })();
+    }
     return;
   }
   if (kind === 'zip') {
@@ -151,10 +193,14 @@ export function doExport(kind: ExportKind, content: string, mode: DocMode, docNa
   }
 }
 
-export function exportProjectZip(files: ProjectFile[]): void {
+export async function exportProjectZip(files: ProjectFile[], project?: ProjectRuntime): Promise<void> {
+  const entries = files.map((f) => ({ name: f.name, data: f.content as string | Uint8Array }));
+  if (entries.some((e) => e.name === '.dexter/project.json')) throw new Error('The .dexter/project.json path is reserved for project backups.');
+  for (const asset of project?.assets ?? []) entries.push({ name: asset.path, data: new Uint8Array(await asset.blob.arrayBuffer()) });
+  entries.push({ name: '.dexter/project.json', data: JSON.stringify({ version: 1, activeName: project?.activeName ?? files[0]?.name }) });
   const stamp = new Date().toISOString().slice(0, 10);
   downloadZip(
     `dexter-write-project-${stamp}.zip`,
-    files.map((f) => ({ name: f.name, data: f.content })),
+    entries,
   );
 }

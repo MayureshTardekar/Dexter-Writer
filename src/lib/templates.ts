@@ -1,12 +1,84 @@
 export type DocMode = 'markdown' | 'latex' | 'typst';
 
+/** Literal sample/placeholder text declared by a template, used for fact warnings. */
+export interface TemplateExampleField {
+  /** Human-readable label shown in the warning. */
+  label: string;
+  /** Exact text that should be replaced with the user's own fact. */
+  match: string;
+}
+
 export interface StarterTemplate {
   id: string;
   label: string;
   mode: DocMode;
   description: string;
   content: string;
+  /** Sample identities/placeholders shipped in `content`. */
+  exampleFields?: TemplateExampleField[];
 }
+
+const RESUME_TEMPLATE_SAMPLES: TemplateExampleField[] = [
+  { label: 'Alex Carter', match: 'Alex Carter' },
+  { label: 'alex.carter@email.com', match: 'alex.carter@email.com' },
+  { label: 'github.com/alexcarter', match: 'github.com/alexcarter' },
+  { label: 'linkedin.com/in/alexcarter', match: 'linkedin.com/in/alexcarter' },
+  { label: 'alexcarter.dev', match: 'alexcarter.dev' },
+  { label: 'Acme Cloud', match: 'Acme Cloud' },
+  { label: 'Datawise', match: 'Datawise' },
+  { label: 'sample metric: 2M+ requests/day', match: '2M+ requests/day' },
+  { label: 'sample metric: 500M events/month', match: '500M events/month' },
+];
+
+const PAPER_TEMPLATE_SAMPLES: TemplateExampleField[] = [
+  { label: 'Alex Carter', match: 'Alex Carter' },
+  { label: 'Dana Lee (sample co-author)', match: 'Dana Lee' },
+  {
+    label: 'sample paper title "Efficient Retrieval for Technical Documentation"',
+    match: 'Efficient Retrieval for Technical Documentation',
+  },
+];
+
+const JAKE_TEMPLATE_EXAMPLES: TemplateExampleField[] = [
+  { label: 'unfinished name "Your Name"', match: 'Your Name' },
+  { label: 'unfinished location "City, State"', match: 'City, State' },
+  { label: 'unfinished phone "+1 (555) 123-4567"', match: '+1 (555) 123-4567' },
+  { label: 'unfinished email "your.email@example.com"', match: 'your.email@example.com' },
+  { label: 'unfinished LinkedIn URL "linkedin.com/in/yourusername"', match: 'linkedin.com/in/yourusername' },
+  { label: 'unfinished GitHub URL "github.com/yourusername"', match: 'github.com/yourusername' },
+  { label: 'unfinished university "University Name"', match: 'University Name' },
+  { label: 'unfinished college "College Name"', match: 'College Name' },
+  { label: 'unfinished degree "Degree / Field of Study"', match: 'Degree / Field of Study' },
+  { label: 'unfinished honors "Relevant Degree / Honors"', match: 'Relevant Degree / Honors' },
+  { label: 'unfinished education dates "2022 -- 2026"', match: '2022 -- 2026' },
+  { label: 'unfinished education dates "2018 -- 2022"', match: '2018 -- 2022' },
+  { label: 'unfinished project "Project Name"', match: 'Project Name' },
+  { label: 'unfinished project "Secondary Project"', match: 'Secondary Project' },
+  { label: 'sample skills "Python, TypeScript, JavaScript, SQL, C++, Java"', match: 'Python, TypeScript, JavaScript, SQL, C++, Java' },
+  { label: 'sample skills "React, Node.js, Express, FastAPI, Tailwind CSS"', match: 'React, Node.js, Express, FastAPI, Tailwind CSS' },
+  { label: 'sample tools "PostgreSQL, Redis, Docker, Git, Linux, AWS"', match: 'PostgreSQL, Redis, Docker, Git, Linux, AWS' },
+  { label: 'sample competencies "REST APIs, Distributed Systems, Data Structures, System Design"', match: 'REST APIs, Distributed Systems, Data Structures, System Design' },
+  {
+    label: 'sample project bullet "Built a scalable web platform..."',
+    match: 'Built a scalable web platform handling user authentication',
+  },
+  {
+    label: 'sample project bullet "Implemented efficient database querying..."',
+    match: 'Implemented efficient database querying and indexing',
+  },
+  {
+    label: 'sample project bullet "Designed responsive modern user interface..."',
+    match: 'Designed responsive modern user interface with reusable component architecture',
+  },
+  {
+    label: 'sample project bullet "Developed automated data processing pipeline..."',
+    match: 'Developed automated data processing pipeline with error handling and logging',
+  },
+  {
+    label: 'sample project bullet "Integrated background task queue..."',
+    match: 'Integrated background task queue for reliable asynchronous job execution',
+  },
+];
 
 export const TEMPLATES: StarterTemplate[] = [
   {
@@ -14,6 +86,7 @@ export const TEMPLATES: StarterTemplate[] = [
     label: 'ATS Resume (.md)',
     mode: 'markdown',
     description: 'Software engineer resume, ATS-friendly',
+    exampleFields: RESUME_TEMPLATE_SAMPLES,
     content: `# Alex Carter
 Full-Stack Software Engineer | alex.carter@email.com | github.com/alexcarter | linkedin.com/in/alexcarter | alexcarter.dev
 
@@ -50,6 +123,7 @@ Full-Stack Software Engineer | alex.carter@email.com | github.com/alexcarter | l
     label: 'ATS Resume (.tex)',
     mode: 'latex',
     description: 'Same resume in LaTeX article class',
+    exampleFields: RESUME_TEMPLATE_SAMPLES,
     content: `% Dexter Write — ATS Resume (LaTeX)
 \\documentclass[11pt,a4paper]{article}
 \\usepackage[margin=0.7in]{geometry}
@@ -94,6 +168,7 @@ AWS Solutions Architect Associate (2023)
     label: "Jake's Resume (.tex)",
     mode: 'latex',
     description: "Standard CS / Software Engineer resume based on Jake's Resume",
+    exampleFields: JAKE_TEMPLATE_EXAMPLES,
     content: `%-------------------------
 % Resume in Latex - Jake's Template
 % License : MIT
@@ -217,6 +292,7 @@ AWS Solutions Architect Associate (2023)
     label: 'Research Paper (.tex)',
     mode: 'latex',
     description: 'Article class with math + bibliography',
+    exampleFields: PAPER_TEMPLATE_SAMPLES,
     content: `% Dexter Write — Academic Paper
 \\documentclass[11pt,a4paper]{article}
 \\usepackage{amsmath, amssymb}
@@ -261,6 +337,7 @@ Structure-aware chunking helps. Future work: citation grounding.
     label: 'ATS Resume (.typ)',
     mode: 'typst',
     description: 'Software engineer resume with instant PDF',
+    exampleFields: RESUME_TEMPLATE_SAMPLES,
     content: `// Dexter Write — ATS Resume (Typst)
 #set page(margin: (x: 1.8cm, y: 1.6cm))
 #set text(size: 10.5pt)
@@ -298,6 +375,7 @@ AWS Solutions Architect Associate (2023)
     label: 'Research Paper (.typ)',
     mode: 'typst',
     description: 'Article with math, figures and bibliography',
+    exampleFields: PAPER_TEMPLATE_SAMPLES,
     content: `// Dexter Write — Academic Paper (Typst)
 #set page(margin: 2cm)
 #set text(font: "New Computer Modern", size: 11pt)
