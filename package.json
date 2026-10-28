@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "bin": {
+    "dexter-mcp": "./bin/dexter-mcp.mjs"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -10,7 +13,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "mcp": "node bin/dexter-mcp.mjs",
+    "mcp:self-test": "node bin/dexter-mcp.mjs --self-test",
+    "mcp:config": "node bin/dexter-mcp.mjs --print-config",
+    "mcp:tunnel": "node bin/dexter-mcp.mjs --print-tunnel-setup"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
@@ -21,6 +28,7 @@
     "@myriaddreamin/typst-ts-renderer": "^0.7.0",
     "@myriaddreamin/typst-ts-web-compiler": "^0.7.0",
     "@myriaddreamin/typst.ts": "^0.7.0",
+    "@supabase/supabase-js": "^2.118.0",
     "isomorphic-git": "^1.42.2",
     "katex": "^0.18.7",
     "mermaid": "^12.0.0",

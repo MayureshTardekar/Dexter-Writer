@@ -40,7 +40,22 @@ The AI doesn't just chat—**it directly inspects, patches, and typesets your do
 
 ### 2. 🤖 Native MCP (Model Context Protocol) Integration
 - **In-Browser Virtual MCP Server**: The active document buffer is exposed to the AI as a native MCP server (`read_document`, `replace_lines`, `insert_text`, `get_outline`).
+- **Desktop MCP Bridge**: Run `npm run mcp` and register `bin/dexter-mcp.mjs` in Claude Desktop or Cursor (`npm run mcp:config` prints the JSON). External agents can read any project file, stage exact-string edits and inserts for review, compile LaTeX/Typst, and read diagnostics.
+- **ChatGPT Web via Secure MCP Tunnel**: Connect the same bridge to `chatgpt.com` as a custom MCP server through OpenAI's outbound-only tunnel. Run `npm run mcp:tunnel` for exact commands; no public port is opened.
 - **External MCP Client**: Connect external MCP servers (such as GitHub, Web Search, or local repos) over SSE/HTTP to inject real code, commit logs, and citations into your documentation or resume.
+
+#### ChatGPT web (Secure MCP Tunnel)
+
+ChatGPT web can reach the local bridge without exposing `127.0.0.1:3088` to the public internet:
+
+1. Install [OpenAI `tunnel-client`](https://github.com/openai/tunnel-client/releases/latest).
+2. Create a tunnel and runtime API key in [Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels), then associate the tunnel with your ChatGPT workspace.
+3. Run `npm run mcp:tunnel` and execute the printed `tunnel-client init` command with your tunnel ID.
+4. Start it with `tunnel-client run --profile dexter-write`. This starts the Dexter Write MCP daemon, so do not also run `npm run mcp`.
+5. At `chatgpt.com/plugins`, add a custom MCP server with `Connection: Tunnel`, select the tunnel, and choose `No authentication`.
+6. Keep Dexter Write open with the bridge enabled. Reads run immediately; edits and inserts are staged for review.
+
+Custom MCP server access in ChatGPT depends on your plan, workspace, and permissions. The tunnel is outbound-only and the daemon still accepts browser connections only from local Dexter Write origins.
 
 ### 3. 🎙️ Two-in-One Voice & Chat Playground
 - Interactive sidebar with continuous conversational memory.
@@ -84,6 +99,10 @@ The AI doesn't just chat—**it directly inspects, patches, and typesets your do
  │  - OpenAI GPT-4o                 - replace_lines / insert_block       │
  │  - Anthropic Claude 3.5          - get_document_outline               │
  │  - Local Ollama                  - apply_diff                         │
+ │                                                                       │
+ │  [Local Desktop MCP Bridge]                                           │
+ │  - node bin/dexter-mcp.mjs (stdio <-> localhost SSE)                  │
+ │  - Read, stage, compile, diagnostics, resources, prompts              │
  │                                                                       │
  │  [External MCP Client]                                                │
  │  - Connects to SSE / HTTP MCP endpoints (GitHub, Web Search, etc.)    │

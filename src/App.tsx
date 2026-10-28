@@ -2,6 +2,7 @@ import { persistAiAction, readAiAction, removeAiAction } from './lib/aiActions';
 import ProjectFileTree from './components/ProjectFileTree';
 import AssetLibraryModal from './components/AssetLibraryModal';
 import ProjectHubModal from './components/ProjectHubModal';
+import CloudPanel from './components/CloudPanel';
 import { ProjectContext, compileLatexProject, compileTypstProject, type ProjectRuntime } from './lib/projectRuntime';
 import { listAssets, storeAsset, removeAsset, prepareAsset, imageSnippet, type ProjectAsset, type ImageOptions } from './lib/assets';
 import { projectPath, resolveProjectPath, relativeProjectPath } from './lib/projectPaths';
@@ -20,6 +21,8 @@ import HistoryModal from './components/HistoryModal';
 import CitationsModal from './components/CitationsModal';
 import ReviewAgentModal from './components/ReviewAgentModal';
 import DiffReviewModal from './components/DiffReviewModal';
+import WorkspaceReviewModal, { type WorkspaceReviewDraft } from './components/WorkspaceReviewModal';
+import ExternalAgentBanner from './components/ExternalAgentBanner';
 import CommandPalette, { type PaletteAction } from './components/CommandPalette';
 import Toasts from './components/Toasts';
 import ModalHeader from './components/ModalHeader';
@@ -33,6 +36,7 @@ import { resolveProvider } from './lib/aiGateway';
 import type { FileAccess } from './lib/agent';
 import {
   clearUndoAction,
+  createWorkspace,
   describeConflicts,
   findUndoConflicts,
   findWorkspaceConflicts,
@@ -46,6 +50,19 @@ import {
 import { vaultGet, vaultSet } from './lib/vault';
 import { doExport, exportProjectZip, type ExportKind } from './lib/exportDoc';
 import { loadServers, saveServers, type ExternalMcpServer } from './lib/externalMcp';
+import {
+  McpBridgeClient,
+  type BridgeAccess,
+  type BridgeCompileOutcome,
+  type BridgeDiagnosticsOutcome,
+  type BridgeMutationOutcome,
+  type BridgeStatus,
+} from './lib/mcp/bridgeClient';
+import {
+  resolveExternalTarget,
+  stageExternalInsertion,
+  stageExternalStringEdit,
+} from './lib/mcp/externalEdits';
 import {
   extForMode,
   loadProject,
@@ -104,6 +121,22 @@ export default function App() {
   const [aiComplete, setAiComplete] = useState(() => localStorage.getItem('dexter-write:ai-complete') === '1');
   const [showByok, setShowByok] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
+  const [showCloud, setShowCloud] = useState(false);
+  const [mcpBridgeEnabled, setMcpBridgeEnabled] = useState(() => {
+    let stored: string | null = null;
+    try { stored = localStorage.getItem('dexter-write:mcp-bridge-enabled'); } catch { stored = null; }
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  });
+  const [mcpBridgeStatus, setMcpBridgeStatus] = useState<BridgeStatus>('off');
+  const [externalWorkspace, setExternalWorkspace] = useState<StagedWorkspace | null>(null);
+  const [externalReviewOpen, setExternalReviewOpen] = useState(false);
+  const [externalReviewDraft, setExternalReviewDraft] = useState<WorkspaceReviewDraft | null>(null);
+  const [externalReviewVersion, setExternalReviewVersion] = useState(0);
+  const externalWorkspaceRef = useRef<StagedWorkspace | null>(null);
+  const lastCompileRef = useRef<BridgeCompileOutcome | null>(null);
   const [showGithub, setShowGithub] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -263,14 +296,198 @@ export default function App() {
   activeIdRef.current = activeId;
   const filesRef = useRef(files);
   filesRef.current = files;
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
   const liveRef = useRef(live);
   liveRef.current = live;
+
+  const publishExternalWorkspace = useCallback((next: StagedWorkspace | null) => {
+    const normalized = next && next.changes.length > 0 ? next : null;
+    externalWorkspaceRef.current = normalized;
+    setExternalWorkspace(normalized);
+    if (!normalized) {
+      setExternalReviewDraft(null);
+      setExternalReviewOpen(false);
+    }
+  }, []);
 
   const active = files.find((f) => f.id === activeId) ?? files[0];
   const docContent = active?.content ?? '';
   const docMode: DocMode = active ? (modeForName(active.name) || active.mode || 'markdown') : 'markdown';
   const runtime = useMemo<ProjectRuntime>(() => ({ files, assets, urls: assetUrls, activeName: active?.name || 'main.md', revision: assets.reduce((n, a) => n + a.updatedAt, 0) }), [files, assets, assetUrls, active?.name]);
+  const runtimeRef = useRef(runtime);
+  runtimeRef.current = runtime;
   useEffect(() => setValidationStatus('Draft'), [files, assets]);
+
+  useEffect(() => {
+    localStorage.setItem('dexter-write:mcp-bridge-enabled', mcpBridgeEnabled ? '1' : '0');
+    if (!mcpBridgeEnabled) {
+      setMcpBridgeStatus('off');
+      return;
+    }
+    const targets = () => filesRef.current.map((file) => ({
+      id: file.id,
+      name: file.name,
+      mode: modeForName(file.name),
+      content: file.content,
+    }));
+    const resolve = (args: Record<string, unknown>) => (
+      resolveExternalTarget(targets(), activeIdRef.current, args)
+    );
+    const validationIssues = () => validateProject(
+      filesRef.current,
+      assetsRef.current.map((asset) => asset.path),
+    );
+    const stage = (
+      kind: 'edit' | 'insert',
+      args: Record<string, unknown>,
+    ): BridgeMutationOutcome => {
+      const target = resolve(args);
+      if (!target) {
+        const requested = typeof args.filename === 'string' && args.filename.trim()
+          ? args.filename.trim()
+          : 'the requested file';
+        return { ok: false, message: `Dexter Write could not find ${requested}.` };
+      }
+      try {
+        const workspace = externalWorkspaceRef.current ?? createWorkspace();
+        const result = kind === 'edit'
+          ? stageExternalStringEdit(workspace, target, args)
+          : stageExternalInsertion(workspace, target, args);
+        if (!result.ok) return { ok: false, message: result.message };
+        publishExternalWorkspace(result.workspace);
+        setExternalReviewDraft(null);
+        setExternalReviewVersion((version) => version + 1);
+        setExternalReviewOpen(true);
+        toast(`External agent staged ${result.name}. Nothing has been applied yet.`, 'info', 4500);
+        return {
+          ok: true,
+          message: result.message,
+          files: result.files,
+          file: result.name,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          message: `Dexter Write could not stage that change: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    };
+    const access: BridgeAccess = {
+      active: () => {
+        const current = filesRef.current.find((f) => f.id === activeIdRef.current) ?? filesRef.current[0];
+        return current
+          ? { name: current.name, mode: modeForName(current.name), content: current.content }
+          : { name: 'untitled.md', mode: 'markdown', content: '' };
+      },
+      files: () => filesRef.current.map((f) => ({
+        name: f.name,
+        mode: modeForName(f.name),
+        lines: f.content ? f.content.split('\n').length : 0,
+        active: f.id === activeIdRef.current,
+      })),
+      readFile: (args) => {
+        const target = resolve(args);
+        return target ? { name: target.name, mode: target.mode, content: target.content } : null;
+      },
+      stageEdit: (args) => stage('edit', args),
+      insertContent: (args) => stage('insert', args),
+      compile: async (args): Promise<BridgeCompileOutcome> => {
+        const target = resolve(args);
+        if (!target) {
+          const outcome: BridgeCompileOutcome = {
+            ok: false,
+            file: '',
+            mode: 'markdown',
+            message: 'Dexter Write could not find that project file.',
+            diagnostics: [],
+          };
+          lastCompileRef.current = outcome;
+          return outcome;
+        }
+        const issues = validationIssues().filter((issue) => issue.file === target.name);
+        const issueDiagnostics = issues.map((issue) => `[${issue.severity}] ${issue.message}`);
+        let outcome: BridgeCompileOutcome;
+        if (target.mode === 'markdown') {
+          const errors = issues.filter((issue) => issue.severity === 'error').length;
+          const ok = errors === 0;
+          outcome = {
+            ok,
+            file: target.name,
+            mode: target.mode,
+            message: [
+              ok
+                ? `${target.name} checked successfully in markdown mode.`
+                : `${target.name} has ${errors} validation error${errors === 1 ? '' : 's'}.`,
+              ...issueDiagnostics,
+            ].join('\n'),
+            diagnostics: issueDiagnostics,
+          };
+        } else if (target.mode === 'latex') {
+          const result = await compileLatexProject(runtimeRef.current, target.content, target.name);
+          const diagnostics = [...issueDiagnostics, ...(result.warnings ?? [])];
+          const ok = Boolean(result.success && result.pdf);
+          const pages = typeof result.pages === 'number' ? result.pages : undefined;
+          outcome = {
+            ok,
+            file: target.name,
+            mode: target.mode,
+            message: [
+              ok
+                ? `${target.name} compiled to PDF${pages ? ` (${pages} page${pages === 1 ? '' : 's'})` : ''}.`
+                : `${target.name} failed to compile: ${result.error || 'unknown LaTeX error'}`,
+              ...diagnostics,
+            ].join('\n'),
+            diagnostics,
+            pages,
+            compileMs: result.compileMs,
+          };
+        } else {
+          const format = args.format === 'preview' ? 'svg' : 'pdf';
+          const result = await compileTypstProject(runtimeRef.current, target.content, target.name, format);
+          const typstDiagnostics = 'diagnostics' in result && Array.isArray(result.diagnostics)
+            ? result.diagnostics
+            : [];
+          const diagnostics = [...issueDiagnostics, ...typstDiagnostics];
+          const artifact = format === 'svg'
+            ? ('svg' in result && Boolean(result.svg))
+            : ('pdf' in result && Boolean(result.pdf));
+          const ok = !result.error && artifact;
+          outcome = {
+            ok,
+            file: target.name,
+            mode: target.mode,
+            message: [
+              ok
+                ? `${target.name} compiled to ${format === 'svg' ? 'SVG preview' : 'PDF'}.`
+                : `${target.name} failed to compile: ${result.error || 'unknown Typst error'}`,
+              ...diagnostics,
+            ].join('\n'),
+            diagnostics,
+            compileMs: result.compileMs,
+          };
+        }
+        lastCompileRef.current = outcome;
+        toast(outcome.message.split('\n')[0], outcome.ok ? 'success' : 'error', 5000);
+        return outcome;
+      },
+      diagnostics: (args): BridgeDiagnosticsOutcome => {
+        const scoped = typeof args.filename === 'string' || typeof args.file_id === 'string';
+        const target = scoped ? resolve(args) : null;
+        if (scoped && !target) throw new Error('Dexter Write could not find that project file.');
+        const filename = target?.name ?? '';
+        const issues = validationIssues().filter((issue) => !filename || issue.file === filename);
+        const compile = lastCompileRef.current;
+        return {
+          issues,
+          compile: compile && (!filename || compile.file === filename) ? compile : null,
+        };
+      },
+    };
+    const client = new McpBridgeClient({ onStatus: setMcpBridgeStatus });
+    client.start(access);
+    return () => client.stop();
+  }, [mcpBridgeEnabled, publishExternalWorkspace]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -344,11 +561,12 @@ export default function App() {
     else if (showShortcuts) setShowShortcuts(false);
     else if (showGithub) setShowGithub(false);
     else if (showLive) setShowLive(false);
+    else if (showCloud) setShowCloud(false);
     else if (showMcp) setShowMcp(false);
     else if (showByok) setShowByok(false);
     else if (aiFixProposal) setAiFixProposal(null);
     else if (paletteOpen) setPaletteOpen(false);
-  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showMcp, showByok, aiFixProposal, paletteOpen]);
+  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showCloud, showMcp, showByok, aiFixProposal, paletteOpen]);
 
   // Global shortcuts: palette, save-guard, Esc-to-close.
   useEffect(() => {
@@ -520,6 +738,33 @@ export default function App() {
     void persistAiAction(projectId, action).catch((e) => toast(`AI changes applied, but Undo could not be saved for reload: ${String(e)}. Undo is still available in this session.`, 'error', 7000));
     return { ok: true, action };
   }, [setDocContent, projectId]);
+
+  const externalConflicts = useMemo(
+    () => (externalWorkspace ? findWorkspaceConflicts(externalWorkspace, files) : []),
+    [externalWorkspace, files],
+  );
+
+  const applyExternalWorkspace = useCallback((resolved: StagedWorkspace): WorkspaceApplyResult => {
+    const result = applyAiWorkspace(resolved);
+    if (!result.ok) return result;
+    const summary = workspaceSummary(resolved);
+    publishExternalWorkspace(null);
+    setExternalReviewVersion((version) => version + 1);
+    toast(`Applied external agent changes (${summary}). Undo is available.`, 'success', 4000);
+    return result;
+  }, [applyAiWorkspace, publishExternalWorkspace]);
+
+  const discardExternalWorkspace = useCallback(() => {
+    const count = externalWorkspaceRef.current?.changes.length ?? 0;
+    publishExternalWorkspace(null);
+    setExternalReviewVersion((version) => version + 1);
+    toast(`Discarded ${count} staged external file${count === 1 ? '' : 's'}.`, 'info', 3200);
+  }, [publishExternalWorkspace]);
+
+  const closeExternalReview = useCallback((draft?: WorkspaceReviewDraft) => {
+    setExternalReviewDraft(draft ?? null);
+    setExternalReviewOpen(false);
+  }, []);
 
   const undoLastAiAction = useCallback(() => {
     const action = undoAction;
@@ -713,6 +958,7 @@ export default function App() {
     for (const asset of prepared) { await storeAsset(asset); assetNext.push(asset); setAssets([...assetNext]); }
     if (replace) {
       for (const file of filesRef.current) { await saveSnapshot(file.id, file.name, file.content, 'Before project restore'); liveRef.current?.removeFile(file.id); }
+      if (externalWorkspaceRef.current) publishExternalWorkspace(null);
       clearUndoAction(); await removeAiAction(projectId); undoVersionRef.current++; setUndoAction(null);
     }
     const final = [...current, ...imported];
@@ -721,6 +967,24 @@ export default function App() {
     const main = incoming.activeName && paths.get(incoming.activeName);
     setActiveId(final.find((f) => f.name === main)?.id || imported[0]?.id || final[0].id);
     toast(`Imported ${imported.length} documents and ${prepared.length} images.`, 'success');
+  }
+  async function applyCloudProject(cloudFiles: ProjectFile[], cloudAssets: ProjectAsset[], cloudActiveName: string) {
+    const sess = liveRef.current;
+    if (sess) {
+      for (const file of filesRef.current) sess.removeFile(file.id);
+      for (const file of cloudFiles) sess.addFile(file);
+    }
+    for (const asset of assetsRef.current) await removeAsset(asset.id);
+    for (const asset of cloudAssets) await storeAsset(asset);
+    publishExternalWorkspace(null);
+    setAssets(cloudAssets);
+    setSharedAssetIds([]);
+    setFiles(cloudFiles);
+    setActiveId(cloudFiles.find((file) => file.name === cloudActiveName)?.id ?? cloudFiles[0]?.id ?? '');
+    undoVersionRef.current++;
+    setUndoAction(null);
+    clearUndoAction();
+    void removeAiAction(projectId).catch(() => {});
   }
   async function validateCurrentProject(): Promise<string[]> {
     const issues = validateProject(filesRef.current, assets.map((a) => a.path));
@@ -1239,6 +1503,14 @@ export default function App() {
           </button>
           <button
             className="act-btn"
+            onClick={() => setShowCloud(true)}
+            title="Cloud sync & remote MCP"
+            aria-label="Cloud sync and remote MCP"
+          >
+            <Icon name="cloud" size={16} />
+          </button>
+          <button
+            className="act-btn"
             onClick={() => setShowMcp(true)}
             title={connectedCount > 0 ? `MCP Servers (${connectedCount} active)` : "External MCP Servers"}
             aria-label="External MCP"
@@ -1489,6 +1761,21 @@ export default function App() {
             </span>
           </span>
         )}
+        <button
+          className={`stat stat-btn${mcpBridgeStatus === 'live' ? ' on' : ''}`}
+          onClick={() => setMcpBridgeEnabled((value) => !value)}
+          title={!mcpBridgeEnabled
+            ? 'Local MCP bridge is off — click to let Claude Desktop or Cursor read this project'
+            : mcpBridgeStatus === 'live'
+              ? 'Local MCP bridge is connected — external agents can read the active document, outline, and file list'
+              : mcpBridgeStatus === 'offline'
+                ? 'No dexter-mcp daemon detected on 127.0.0.1:3088 — run npm run mcp'
+                : 'Connecting to the local dexter-mcp daemon…'}
+          aria-pressed={mcpBridgeEnabled}
+          aria-label="Local MCP bridge"
+        >
+          <Icon name="plug" size={11} /> Bridge {mcpBridgeStatus === 'connecting' ? 'connecting' : mcpBridgeStatus}
+        </button>
         <span className="stat hide-mobile">{files.length} files</span>
         {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
         <span className="stat hide-mobile">{resolveProvider(provider).label}:{model}</span>
@@ -1531,7 +1818,24 @@ export default function App() {
         />
       )}
       {showMcp && (
-        <McpManager servers={servers} setServers={setServers} onClose={() => setShowMcp(false)} />
+        <McpManager
+          servers={servers}
+          setServers={setServers}
+          bridgeEnabled={mcpBridgeEnabled}
+          bridgeStatus={mcpBridgeStatus}
+          onToggleBridge={() => setMcpBridgeEnabled((enabled) => !enabled)}
+          onClose={() => setShowMcp(false)}
+        />
+      )}
+      {showCloud && (
+        <CloudPanel
+          files={files}
+          assets={assets}
+          activeName={active?.name ?? ''}
+          localProjectId={projectId}
+          onLoad={applyCloudProject}
+          onClose={() => setShowCloud(false)}
+        />
       )}
       {showLive && !live && (
         <LiveModal
@@ -1610,6 +1914,25 @@ export default function App() {
       )}
       {showAssets && <AssetLibraryModal onClose={() => setShowAssets(false)} onUpload={uploadImages} onInsert={insertImage} onRename={renameImage} onDelete={async (asset) => { await removeAsset(asset.id); setAssets((prev) => prev.filter((a) => a.id !== asset.id)); setSharedAssetIds((prev) => prev.filter((id) => id !== asset.id)); }} shared={sharedAssetIds} onShare={setSharedAssetIds} />}
       {showHub && <ProjectHubModal onClose={closeHub} onCreate={createDocument} onImport={importReviewed} onAI={() => { closeHub(); setSidebarTab('ai'); }} onAssets={() => { closeHub(); setShowAssets(true); }} onBackup={() => runExport('zip')} onValidate={validateCurrentProject} />}
+      {externalWorkspace && !externalReviewOpen && (
+        <ExternalAgentBanner
+          workspace={externalWorkspace}
+          onReview={() => setExternalReviewOpen(true)}
+          onDiscard={discardExternalWorkspace}
+        />
+      )}
+      {externalWorkspace && externalReviewOpen && (
+        <WorkspaceReviewModal
+          key={`${externalWorkspace.id}:${externalReviewVersion}`}
+          workspace={externalWorkspace}
+          theme={theme}
+          conflicts={externalConflicts}
+          initialDraft={externalReviewDraft}
+          onApply={applyExternalWorkspace}
+          onClose={closeExternalReview}
+          onDiscard={discardExternalWorkspace}
+        />
+      )}
       <Toasts />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={paletteActions} />
     </div></ProjectContext.Provider>

@@ -90,7 +90,7 @@ export function findMissingPackage(log: string): string | null {
 }
 
 const LAMBDA_STORAGE_KEY = 'dexter_latex_lambda_url';
-export const DEFAULT_LATEX_LAMBDA_URL = ''; // Remote compilation requires explicit configuration.
+export const DEFAULT_LATEX_LAMBDA_URL = 'https://qrcz6lt55f2g4qdocjunecepn40kwodf.lambda-url.ap-south-1.on.aws/';
 
 /**
  * Returns the configured AWS Lambda compiler URL.
@@ -130,6 +130,11 @@ export function setLambdaUrl(url: string | null): void {
  */
 export function isRemoteCompilerConfigured(): boolean {
   return Boolean(getLambdaUrl());
+}
+
+function cloudCompileEnabled(): boolean {
+  const value = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_COMPILE_CLOUD;
+  return !value || value.toLowerCase() !== 'off';
 }
 
 export function latexEngineError(): string | null {
@@ -256,6 +261,10 @@ export function revokeActivePdfUrl(): void {
 export function isRemoteInfraFailure(errorMsg?: string): boolean {
   if (!errorMsg) return true;
   if (/^! /m.test(errorMsg)) return false;
+  if (/^error:/im.test(errorMsg)) return false;
+  if (/halted on/i.test(errorMsg)) return false;
+  if (/Undefined control sequence/i.test(errorMsg)) return false;
+  if (/LaTeX Error/i.test(errorMsg)) return false;
   if (/Output written on/i.test(errorMsg)) return false;
   if (/Transcript written on/i.test(errorMsg)) return false;
   return true;
@@ -344,22 +353,21 @@ export async function compileLatexPdf(
 
     // 1. Prefer AWS Lambda if configured and online (Zero MB client download)
     const lambdaUrl = getLambdaUrl();
-    const canUseRemote = Boolean(lambdaUrl && (typeof navigator === 'undefined' || navigator.onLine));
+    const canUseRemote = Boolean(cloudCompileEnabled() && lambdaUrl && (typeof navigator === 'undefined' || navigator.onLine));
 
     if (canUseRemote && lambdaUrl && extraFiles.reduce((n, f) => n + f.content.length, 0) <= 4 * 1024 * 1024) {
       try {
         const remoteRes = await compileWithLambda(source, lambdaUrl, extraFiles);
-        if (remoteRes.success) return remoteRes;
-        // Genuine LaTeX syntax errors come back as TeX logs — return those
-        // directly. Anything else (HTTP 4xx/5xx, timeouts) falls through to
-        // the local WASM engine below.
-        if (!isRemoteInfraFailure(remoteRes.error)) {
-          return remoteRes;
-        }
-        notifyStatus('loading', 20, 'Cloud compiler rejected the request — falling back to local WASM…');
+        // Always return the cloud compiler result directly (0 MB client download).
+        // Never trigger silent ~600 MB package downloads on user devices.
+        return remoteRes;
       } catch (err) {
-        console.warn('AWS Lambda compiler network error, falling back to local WASM:', err);
-        notifyStatus('loading', 20, 'Cloud compiler unreachable. Falling back to local WASM…');
+        console.warn('AWS Lambda compiler network error:', err);
+        return {
+          success: false,
+          error: 'Cloud compiler is unreachable. Please check your internet connection.',
+          compileMs: 0,
+        };
       }
     }
 

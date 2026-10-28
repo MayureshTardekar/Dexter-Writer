@@ -15,6 +15,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import './index.css'
 import App from './App.tsx'
+import OAuthConsent from './components/OAuthConsent.tsx'
 import { registerServiceWorker } from './lib/pwa.ts'
 
 registerServiceWorker()
@@ -25,9 +26,11 @@ registerServiceWorker()
 }
 loader.config({ monaco })
 
+const isConsentRoute = /\/oauth\/consent\/?$/.test(window.location.pathname)
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {isConsentRoute ? <OAuthConsent /> : <App />}
   </StrictMode>,
 )
 

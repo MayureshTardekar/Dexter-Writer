@@ -6,7 +6,7 @@ export type IconName =
   | 'key' | 'plug' | 'github' | 'book' | 'history' | 'undo' | 'keyboard' | 'download'
   | 'plus' | 'x' | 'check' | 'mic' | 'send' | 'copy' | 'search' | 'chevron'
   | 'chevronsLeft' | 'chevronsRight' | 'trash' | 'refresh' | 'alert' | 'info' | 'link' | 'logout' | 'sparkles'
-  | 'fileText' | 'menu' | 'command' | 'quote' | 'stop' | 'wand'
+  | 'fileText' | 'menu' | 'command' | 'quote' | 'stop' | 'wand' | 'cloud'
   | 'layoutSplit' | 'layoutLeft' | 'layoutCenter' | 'layoutRight';
 
 const PATHS: Record<IconName, string> = {
@@ -51,6 +51,7 @@ const PATHS: Record<IconName, string> = {
   quote: 'M10 11H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v7a3 3 0 0 1-3 3M20 11h-4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v7a3 3 0 0 1-3 3',
   stop: 'M7 7h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z',
   wand: 'M15 4V2M15 10V8M12.5 6h-2M19.5 6h-2M13.2 7.8 11.8 9.2M18.2 2.8l-1.4 1.4M3 21l9-9M13.4 4.6 11.8 3',
+  cloud: 'M17.5 19H7a4 4 0 0 1-.7-7.94 6 6 0 0 1 11.4-1.5A4.5 4.5 0 0 1 17.5 19z',
   layoutSplit: 'M3 4h18v16H3zM9 4v16M15 4v16',
   layoutLeft: 'M3 4h18v16H3zM9 4v16',
   layoutCenter: 'M3 4h18v16H3zM7 4v16M17 4v16',
