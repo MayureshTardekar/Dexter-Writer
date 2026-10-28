@@ -1,0 +1,32 @@
+# ==============================================================================
+# Dexter Write — Prometheus Scrape Configuration
+# ==============================================================================
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # 1. Host Metrics (Node Exporter)
+  - job_name: 'node_exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          instance: 'ec2-ubuntu-host'
+          service: 'node-exporter'
+
+  # 2. Application Backend Metrics (Dexter LaTeX Node.js Server)
+  - job_name: 'dexter_backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['backend:8080']
+        labels:
+          instance: 'dexter-backend-node'
+          service: 'dexter-compiler'
+
+  # 3. Prometheus Self-Monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          instance: 'prometheus-server'
+

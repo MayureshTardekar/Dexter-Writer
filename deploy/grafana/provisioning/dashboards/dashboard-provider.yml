@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: 'Dexter Dashboards'
+    orgId: 1
+    folder: 'Dexter Cloud'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+

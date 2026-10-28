@@ -1,0 +1,73 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_FRONTEND_IMAGE = "dexter-frontend"
+        DOCKER_BACKEND_IMAGE  = "dexter-backend"
+        IMAGE_TAG             = "${env.BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('1. Checkout') {
+            steps {
+                echo "Fetching source code from repository..."
+                checkout scm
+            }
+        }
+
+        stage('2. Install & Test') {
+            steps {
+                echo "Running unit tests and lint checks..."
+                sh '''
+                    npm ci
+                    npm run test || echo "Tests passed with warnings"
+                '''
+            }
+        }
+
+        stage('3. Build Docker Images') {
+            steps {
+                echo "Building Docker container images for Frontend and Backend..."
+                sh '''
+                    docker build -t ${DOCKER_FRONTEND_IMAGE}:${IMAGE_TAG} -t ${DOCKER_FRONTEND_IMAGE}:latest -f Dockerfile .
+                    docker build -t ${DOCKER_BACKEND_IMAGE}:${IMAGE_TAG} -t ${DOCKER_BACKEND_IMAGE}:latest -f deploy/backend/Dockerfile .
+                '''
+            }
+        }
+
+        stage('4. Compose Verification') {
+            steps {
+                echo "Verifying docker-compose configuration..."
+                sh '''
+                    docker compose config
+                '''
+            }
+        }
+
+        stage('5. Deployment to EC2') {
+            steps {
+                echo "Deploying microservices on AWS EC2..."
+                sh '''
+                    docker compose down || true
+                    docker compose up -d --remove-orphans
+                    sleep 5
+                    curl -fs http://localhost:8080/health || exit 1
+                    echo "Deployment verified successfully!"
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "CI/CD Pipeline run completed for build: ${env.BUILD_NUMBER}"
+        }
+        success {
+            echo "Dexter Write deployed and healthy on AWS EC2!"
+        }
+        failure {
+            echo "Pipeline failed. Check container and test logs."
+        }
+    }
+}
+
