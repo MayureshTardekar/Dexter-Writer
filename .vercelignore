@@ -1,0 +1,7 @@
+public/core/
+.git
+node_modules
+dist
+test-results
+tests
+lambda
