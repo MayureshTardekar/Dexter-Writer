@@ -15,6 +15,8 @@ describe('resolveExportFilename', () => {
   it('handles filenames with multiple dots or subpaths safely', () => {
     expect(resolveExportFilename('pdf', 'john.doe.resume.tex')).toBe('john.doe.resume.pdf');
     expect(resolveExportFilename('tex', 'chapter-1.tex')).toBe('chapter-1.tex');
+    expect(resolveExportFilename('html', 'docs/report.md')).toBe('report.html');
+    expect(resolveExportFilename('md', 'docs\\notes.md')).toBe('notes.md');
   });
 
   it('falls back to document-timestamp when no docName is provided', () => {

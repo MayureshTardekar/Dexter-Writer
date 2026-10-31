@@ -4,8 +4,8 @@
   "description": "The Open-Source, BYOK & MCP-Native Collaborative Document & Resume Platform",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#0f1115",
-  "theme_color": "#7c6cff",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
   "icons": [
     {
       "src": "favicon.svg",

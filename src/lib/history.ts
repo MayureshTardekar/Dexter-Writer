@@ -41,6 +41,18 @@ export async function saveSnapshot(
   content: string,
   label = 'Auto checkpoint',
 ): Promise<DocSnapshot> {
+  // Prevent duplicate checkpoints if content is identical to the latest snapshot
+  if (label.startsWith('Auto')) {
+    try {
+      const existing = await getSnapshots(fileId);
+      if (existing.length > 0 && existing[0].content === content) {
+        return existing[0];
+      }
+    } catch {
+      // ignore check error and proceed
+    }
+  }
+
   const stats = getDocStats(content);
   const snap: DocSnapshot = {
     id: `snap_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,

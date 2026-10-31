@@ -14,7 +14,7 @@ export default function ModalHeader({ icon, title, sub, category, onClose }: { i
           {category && <span className="cat-pill">{category}</span>}
         </div>
       </div>
-      <button className="btn icon-btn" onClick={onClose} aria-label="Close dialog" autoFocus={false}>
+      <button type="button" className="btn icon-btn" onClick={onClose} aria-label="Close dialog">
         <Icon name="x" size={15} />
       </button>
     </div>

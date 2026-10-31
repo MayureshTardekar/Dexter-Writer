@@ -6,6 +6,7 @@ import { applyHunks, computeHunks, hunkLabel, type DiffHunk } from '../lib/lineD
 import { registerTypstLanguage, monacoLanguageFor } from '../lib/monacoTypst';
 import { registerLatexLanguage } from '../lib/monacoLatex';
 import { DEXTER_DARK_THEME, DEXTER_LIGHT_THEME, MONACO_FONT, registerDexterThemes } from '../lib/monacoTheme';
+import { askConfirm } from '../lib/dialog';
 import ModalHeader from './ModalHeader';
 import PreviewPane from './PreviewPane';
 import {
@@ -149,7 +150,7 @@ export default function WorkspaceReviewModal({
           onClose={closeWithDraft}
         />
         <div className="modal-body">
-          <div className="row" style={{ gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <div className="review-file-tabs">
             {workspace.changes.map((change) => {
               const hunks = changedHunks(hunksByKey[change.key] ?? []);
               const isSelected = change.key === selected?.key;
@@ -162,9 +163,7 @@ export default function WorkspaceReviewModal({
                   title={`${change.name} · ${hunkStats(hunks)}`}
                 >
                   {change.before === null ? '+ ' : ''}{change.name}
-                  <span className="muted small" style={{ marginLeft: '6px' }}>
-                    {acceptedCount}/{hunks.length}
-                  </span>
+                  <span className="review-file-count">{acceptedCount}/{hunks.length}</span>
                 </button>
               );
             })}
@@ -196,7 +195,7 @@ export default function WorkspaceReviewModal({
                         registerLatexLanguage(monaco);
                         registerDexterThemes(monaco);
                       }}
-                      options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 12.5, lineHeight: 20, bracketPairColorization: { enabled: true }, wordWrap: 'on', scrollBeyondLastLine: false }}
+                      options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 13, lineHeight: 20, bracketPairColorization: { enabled: true }, wordWrap: 'on', scrollBeyondLastLine: false }}
                     />
                   </div>
                 ) : (
@@ -235,7 +234,7 @@ export default function WorkspaceReviewModal({
           )}
         </div>
         <div className="modal-foot">
-          <button className="btn" onClick={onDiscard}>Discard all</button>
+          <button className="btn" onClick={() => { void askConfirm({ title: 'Discard all staged changes?', message: 'Every staged edit from this AI run is removed. Nothing in the project has been changed yet.', confirmLabel: 'Discard changes', danger: true }).then((ok) => { if (ok) onDiscard(); }); }}>Discard all</button>
           <button className="btn" onClick={closeWithDraft}>Review later</button>
           <button
             className="btn primary"

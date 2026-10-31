@@ -38,7 +38,7 @@ export interface ToolResult {
   isError?: boolean;
   /** Set only when the tool mutated the ACTIVE document, so the caller can stage/apply it. */
   newContent?: string;
-  /** Short label for the chat UI, e.g. `⚡ Replaced lines 12-18`. */
+  /** Short label for the chat UI, e.g. `Replaced lines 12-18`. */
   badge?: string;
   /** When true, the loop stops and waits for the user instead of continuing to edit. */
   pause?: boolean;

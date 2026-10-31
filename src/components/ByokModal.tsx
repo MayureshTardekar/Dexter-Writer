@@ -2,6 +2,7 @@ import { fetchAvailableModels, testModelConnection, testProviderConnection, read
 import { useState } from 'react';
 import { PROVIDERS, resolveProvider } from '../lib/aiGateway';
 import { vaultDelete } from '../lib/vault';
+import { askConfirm } from '../lib/dialog';
 import {
   customKeyName,
   customProviderId,
@@ -336,7 +337,7 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
                 <div className="row">
                   <button className="btn xs" onClick={openEditExisting}>Edit endpoint</button>
                   <button className="btn xs" disabled={testing} onClick={runTest}>{testing ? 'Testing…' : 'Test connection'}</button>
-                  <button className="btn xs danger" onClick={() => removeCustom(provider)}>Delete endpoint</button>
+                  <button className="btn xs danger" onClick={() => { void askConfirm({ title: 'Delete this endpoint?', message: 'The saved URL, model, and key name will be removed from this browser.', confirmLabel: 'Delete endpoint', danger: true }).then((ok) => { if (ok) removeCustom(provider); }); }}>Delete endpoint</button>
                 </div>
               )}
               {isCustom && test && (
@@ -357,7 +358,7 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
           )}
         </div>
         <div className="modal-foot">
-          {info.needsKey && !editing && <button className="btn danger" onClick={() => { vaultDelete(info.keyName); setApiKey(''); }}>Clear key</button>}
+          {info.needsKey && !editing && <button className="btn danger" onClick={() => { void askConfirm({ title: 'Clear the saved API key?', message: 'The key is removed from this browser. The provider stays selected but requests will fail until you add a new key.', confirmLabel: 'Clear key', danger: true }).then((ok) => { if (ok) { vaultDelete(info.keyName); setApiKey(''); } }); }}>Clear key</button>}
           <button className="btn" onClick={onClose}>Close</button>
           <button
             className="btn primary"

@@ -2,6 +2,7 @@ import type { CompileFile } from './projectRuntime';
 import { compilerCacheKey, bytesBase64 } from './compilerFiles';
 import { projectPath } from './projectPaths';
 import { BusyTexRunner, PdfLatex } from 'texlyre-busytex';
+import { askConfirm } from './dialog';
 
 export interface LatexCompileResult {
   success: boolean;
@@ -233,6 +234,7 @@ export function warmupLatexEngine(): void {
 // In-memory cache for compiled PDFs
 const cache = new Map<string, Promise<LatexCompileResult>>();
 const MAX_CACHE = 8;
+let localEngineApproved = false;
 
 const getCacheKey = compilerCacheKey;
 let compileQueue: Promise<unknown> = Promise.resolve();
@@ -280,11 +282,10 @@ export async function compileWithLambda(
 
   // Provide seamless compatibility for pdfTeX primitives (e.g. \pdfgentounicode in Jake's resume)
   // and ensure proper font encoding for Type 1 fonts like Charter under XeTeX
-  let payloadTex = source;
-  if (source.includes('glyphtounicode') || source.includes('pdfgentounicode')) {
-    const shim = '\\ifx\\pdfglyphtounicode\\undefined\\def\\pdfglyphtounicode#1#2{}\\fi\\ifx\\pdfgentounicode\\undefined\\newcount\\pdfgentounicode\\fi\n';
-    payloadTex = shim + source;
-  }
+  // Strip pdfTeX-only glyphtounicode shims which cause Tectonic/XeTeX engine loops & timeouts
+  let payloadTex = source
+    .replace(/\\input\{glyphtounicode\}/g, '% [dexter: native unicode in XeTeX]')
+    .replace(/\\pdfgentounicode\s*=\s*\d+/g, '% [dexter: native unicode in XeTeX]');
   if (/\\usepackage(\[[^\]]*\])?\{charter\}/.test(payloadTex) && !payloadTex.includes('fontenc')) {
     payloadTex = payloadTex.replace(/\\usepackage(\[[^\]]*\])?\{charter\}/, '\\usepackage[T1]{fontenc}\n$&');
   }
@@ -369,6 +370,19 @@ export async function compileLatexPdf(
           compileMs: 0,
         };
       }
+    }
+
+    if (!localEngineApproved) {
+      const approved = await askConfirm({
+        title: 'Download the local TeX engine?',
+        message: 'The cloud compiler is not available. Local compilation needs a one-time download of the TeX engine and basic package slice (about 120 MB), then it works offline and stays cached in this browser.',
+        confirmLabel: 'Download and compile',
+        cancelLabel: 'Cancel',
+      });
+      if (!approved) {
+        return { success: false, error: 'Local compilation cancelled. Connect to the internet or approve the one-time TeX engine download.', compileMs: Math.round(performance.now() - t0) };
+      }
+      localEngineApproved = true;
     }
 
     notifyStatus('compiling', 50, 'Compiling LaTeX with pdfTeX…');

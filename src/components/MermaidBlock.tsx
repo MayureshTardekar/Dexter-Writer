@@ -65,7 +65,7 @@ export default function MermaidBlock({ chart, theme = 'dark' }: Props) {
           fontSize: '12px',
         }}
       >
-        <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>⚠️ Mermaid Diagram Error:</span>
+        <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>Mermaid Diagram Error:</span>
         <span className="muted" style={{ marginLeft: '6px' }}>{error}</span>
         <pre style={{ margin: '8px 0 0', opacity: 0.8, fontSize: '11px' }}>{chart}</pre>
       </div>

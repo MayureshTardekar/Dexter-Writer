@@ -91,10 +91,10 @@ export default function CitationsModal({
           sub="Search papers, generate BibTeX, and insert citations"
           onClose={onClose}
         />
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+        <div className="modal-body citations-body">
 
         {/* Tab navigation */}
-        <div className="seg" style={{ alignSelf: 'flex-start', margin: '8px 0' }}>
+        <div className="seg citations-tabs">
           <button className={tab === 'my' ? 'active' : ''} onClick={() => setTab('my')}>
             My References ({citations.length})
           </button>
@@ -108,9 +108,9 @@ export default function CitationsModal({
 
         {/* Tab 1: My References */}
         {tab === 'my' && (
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="muted small">Click <strong>Insert</strong> to inject into editor buffer</span>
+          <div className="citations-pane">
+            <div className="citations-toolbar">
+              <span className="muted small">Click <strong>Insert</strong> to place the citation tag at the cursor.</span>
               {citations.length > 0 && (
                 <button className="btn xs ghost" onClick={exportBib}>
                   <Icon name="download" size={12} /> Export references.bib
@@ -119,40 +119,26 @@ export default function CitationsModal({
             </div>
 
             {citations.length === 0 ? (
-              <div className="muted small" style={{ textAlign: 'center', padding: '30px 0' }}>
-                No citations added yet. Use the <strong>Search Papers</strong> tab or <strong>Paste BibTeX</strong> to add references.
+              <div className="citations-empty">
+                No citations added yet. Use <strong>Search papers</strong> or <strong>Paste BibTeX</strong> to add references.
               </div>
             ) : (
               citations.map((c) => (
-                <div
-                  key={c.key}
-                  style={{
-                    background: 'var(--panel2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '12px',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <code style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '12px' }}>
+                <div key={c.key} className="citation-card">
+                  <div className="citation-main">
+                    <div className="citation-keyrow">
+                      <code className="citation-key">
                         {docMode === 'latex' ? `\\cite{${c.key}}` : `@${c.key}`}
                       </code>
                       <span className="small muted">({c.year || 'n.d.'})</span>
                     </div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.title}
-                    </div>
-                    <div className="muted small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div className="citation-title">{c.title}</div>
+                    <div className="citation-meta">
                       {c.author} {c.journal ? `· ${c.journal}` : ''}
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div className="citation-actions">
                     <button
                       className="btn xs primary"
                       onClick={() => {
@@ -180,9 +166,9 @@ export default function CitationsModal({
 
         {/* Tab 2: Search Papers (arXiv & Crossref) */}
         {tab === 'search' && (
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span className="muted small">Source:</span>
+          <div className="citations-pane">
+            <div className="citation-source-row">
+              <span className="muted small">Source</span>
               <div className="seg">
                 <button
                   className={searchSource === 'arxiv' ? 'active' : ''}
@@ -199,27 +185,21 @@ export default function CitationsModal({
                   Crossref
                 </button>
               </div>
-              <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', flex: 1, minWidth: '200px' }}>
+              <div className="citation-suggestions">
                 {['Attention is all you need', 'DeepSeek', 'LoRA', 'Diffusion'].map((sq) => (
-                  <button
-                    key={sq}
-                    className="btn xs ghost"
-                    style={{ fontSize: '11px', whiteSpace: 'nowrap', padding: '2px 7px' }}
-                    onClick={() => handleSearch(sq)}
-                  >
+                  <button key={sq} className="btn xs ghost" onClick={() => handleSearch(sq)}>
                     {sq}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="citation-search-row">
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder={searchSource === 'arxiv' ? "Search arXiv paper (e.g. Attention is all you need, DeepSeek)..." : "Search title, author, or DOI..."}
-                style={{ flex: 1 }}
+                placeholder={searchSource === 'arxiv' ? 'Search arXiv papers…' : 'Search title, author, or DOI…'}
                 aria-label="Search papers"
               />
               <button className="btn primary" onClick={() => handleSearch()} disabled={searching}>
@@ -227,64 +207,44 @@ export default function CitationsModal({
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+            <div className="citation-results">
               {searching && (
                 <p className="muted small">
-                  Searching {searchSource === 'arxiv' ? 'arXiv preprints API' : 'Crossref API'} for &ldquo;{query}&rdquo;…
+                  Searching for &ldquo;{query}&rdquo;…
                 </p>
               )}
               {!searching && searchResults.length === 0 && (
-                <p className="muted small" style={{ textAlign: 'center', padding: '20px 0' }}>
-                  Search millions of real papers, preprints, and journals with 1-click citation import.
-                </p>
+                <div className="citations-empty">
+                  Search papers, preprints, and journals, then import the reference in one click.
+                </div>
               )}
               {searchResults.map((item) => {
                 const alreadyAdded = citations.some((c) => c.key === item.key);
                 return (
-                  <div
-                    key={item.key}
-                    style={{
-                      background: 'var(--panel2)',
-                      border: '1px solid var(--border)',
-                      borderRadius: '8px',
-                      padding: '9px 12px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: '12px',
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 600 }}>
+                  <div key={item.key} className="citation-card">
+                    <div className="citation-main">
+                      <div className="citation-title">
                         {item.url ? (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: 'inherit', textDecoration: 'none' }}
-                            title="Open paper in new tab"
-                          >
+                          <a href={item.url} target="_blank" rel="noopener noreferrer" title="Open paper in new tab">
                             {item.title} <Icon name="link" size={11} />
                           </a>
                         ) : (
                           item.title
                         )}
                       </div>
-                      <div className="muted small">{item.author} ({item.year || 'n.d.'})</div>
-                      <div className="muted small" style={{ fontSize: '11px' }}>
-                        {item.journal || (item.doi ? `DOI: ${item.doi}` : '')}
-                      </div>
+                      <div className="citation-meta">{item.author} ({item.year || 'n.d.'})</div>
+                      <div className="citation-meta">{item.journal || (item.doi ? `DOI: ${item.doi}` : '')}</div>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div className="citation-actions">
                       {alreadyAdded ? (
-                        <span className="small muted">✓ In Project</span>
+                        <span className="citation-saved"><Icon name="check" size={11} /> In project</span>
                       ) : (
                         <button
                           className="btn xs primary"
                           onClick={() => onAddCitation(item)}
                           title="Save reference into project"
                         >
-                          + Add
+                          <Icon name="plus" size={11} /> Add
                         </button>
                       )}
                       <button
@@ -308,8 +268,8 @@ export default function CitationsModal({
 
         {/* Tab 3: Paste Raw BibTeX */}
         {tab === 'paste' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span className="muted small">Paste one or more standard BibTeX entries below:</span>
+          <div className="citations-pane">
+            <span className="muted small">Paste one or more standard BibTeX entries below.</span>
             <textarea
               value={rawPaste}
               onChange={(e) => setRawPaste(e.target.value)}
@@ -318,23 +278,13 @@ export default function CitationsModal({
   author={Vaswani, Ashish and others},
   year={2017}
 }`}
-              style={{
-                flex: 1,
-                minHeight: '200px',
-                background: 'var(--panel2)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                padding: '10px',
-                fontFamily: 'ui-monospace, Consolas, monospace',
-                fontSize: '12px',
-              }}
+              className="bib-paste"
               aria-label="Raw BibTeX content"
             />
-            {pasteError && <span style={{ color: 'var(--danger)', fontSize: '12px' }}>{pasteError}</span>}
+            {pasteError && <span className="bib-error">{pasteError}</span>}
             <div className="row end">
               <button className="btn primary" onClick={handlePasteAdd}>
-                Add References
+                Add references
               </button>
             </div>
           </div>

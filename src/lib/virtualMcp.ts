@@ -166,9 +166,9 @@ export const VIRTUAL_MCP_TOOL_DEFS = [
 ];
 
 export function toolBadge(call: McpToolCall): string {
-  if (call.name.includes('read')) return `🛠️ Read lines ${String(call.args.start_line ?? 1)}-${String(call.args.end_line ?? 'end')}`;
-  if (call.name.includes('insert')) return `✨ Inserted at line ${String(call.args.target_line ?? '?')}`;
-  if (call.name.includes('replace')) return `⚡ Replaced lines ${String(call.args.start_line ?? '?')}-${String(call.args.end_line ?? '?')}`;
-  if (call.name.includes('outline')) return '🗂️ Read document outline';
-  return `🛠️ ${call.name}`;
+  if (call.name.includes('read')) return `Read lines ${String(call.args.start_line ?? 1)}-${String(call.args.end_line ?? 'end')}`;
+  if (call.name.includes('insert')) return `Inserted at line ${String(call.args.target_line ?? '?')}`;
+  if (call.name.includes('replace')) return `Replaced lines ${String(call.args.start_line ?? '?')}-${String(call.args.end_line ?? '?')}`;
+  if (call.name.includes('outline')) return 'Read document outline';
+  return `${call.name}`;
 }

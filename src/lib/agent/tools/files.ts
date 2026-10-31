@@ -62,7 +62,7 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
 
   switch (call.name) {
     case 'list_files':
-      return { content: renderFileList(files), badge: '📁 Listed project files' };
+      return { content: renderFileList(files), badge: 'Listed project files' };
 
     case 'read_file': {
       const name = String(a.name ?? '');
@@ -70,7 +70,7 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
       if (problem) return { content: `read_file failed: ${problem}`, isError: true };
       const content = files.read(name);
       if (content === null) return missingFile(files, name);
-      if (!content) return { content: `"${name}" is empty.`, badge: `📄 Read ${name}` };
+      if (!content) return { content: `"${name}" is empty.`, badge: `Read ${name}` };
 
       const lines = content.split('\n');
       const start = a.start_line === undefined ? 1 : clampInt(a.start_line, 1, lines.length, 1);
@@ -82,7 +82,7 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
       const body = numbered.length > MAX_FILE_READ_CHARS
         ? `${numbered.slice(0, MAX_FILE_READ_CHARS)}\n… [truncated — request a narrower line range]`
         : numbered;
-      return { content: `${name} (lines ${start}-${end} of ${lines.length}):\n${body}`, badge: `📄 Read ${name}` };
+      return { content: `${name} (lines ${start}-${end} of ${lines.length}):\n${body}`, badge: `Read ${name}` };
     }
 
     case 'create_file': {
@@ -102,7 +102,7 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
         : '';
       return {
         content: `Staged creation of "${finalName}" (${mode}, ${content.split('\n').length} lines) for review. Use edit_file to refine it before the user applies the workspace.${renamed}`,
-        badge: `📁 Staged ${finalName}`,
+        badge: `Staged ${finalName}`,
       };
     }
 
@@ -131,7 +131,7 @@ export function executeFileTool(files: FileAccess, call: ToolCall): ToolOutcome 
         // Deliberately drop newContent: this edited another file, not the
         // active document. The caller's staged FileAccess overlay records it.
         content: `${outcome.content} Staged for review in "${name}".`,
-        badge: `✏️ Staged ${name}`,
+        badge: `Staged ${name}`,
       };
     }
 

@@ -432,7 +432,7 @@ export default function AiPlayground({
       setMessages((m) => [
         ...m,
         { id: nextId(), role: 'user', text: prompt },
-        { id: nextId(), role: 'assistant', text: '⚠️ No API key set. Open **BYOK** (top-right) and save a key, or switch to Ollama local.', failed: true },
+        { id: nextId(), role: 'assistant', text: 'No API key set. Open **BYOK** (top-right) and save a key, or switch to Ollama local.', failed: true },
       ]);
       setInput('');
       return;
@@ -636,7 +636,7 @@ export default function AiPlayground({
             break;
           case 'error':
             failed = true;
-            buffer += `${buffer ? '\n\n' : ''}❌ ${ev.message}`;
+            buffer += `${buffer ? '\n\n' : ''}${ev.message}`;
             flush(true);
             break;
           case 'round':
@@ -648,7 +648,7 @@ export default function AiPlayground({
       }
     } catch (err) {
       failed = true;
-      buffer += `${buffer ? '\n\n' : ''}❌ ${err instanceof Error ? err.message : String(err)}`;
+      buffer += `${buffer ? '\n\n' : ''}${err instanceof Error ? err.message : String(err)}`;
     } finally {
       flush(true);
 
@@ -725,7 +725,7 @@ export default function AiPlayground({
     const w = window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown };
     const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) {
-      setMessages((m) => [...m, { id: nextId(), role: 'assistant', text: '🎙️ Voice not supported in this browser. Try Chrome/Edge.' }]);
+      setMessages((m) => [...m, { id: nextId(), role: 'assistant', text: 'Voice not supported in this browser. Try Chrome/Edge.' }]);
       return;
     }
     if (listening) return;
@@ -808,14 +808,14 @@ export default function AiPlayground({
               title="Rewrite bullets using Google's X-Y-Z formula"
               onClick={() => send(`Rewrite the selected lines ${selection.startLine}-${selection.endLine} with edit_document. Apply Google's X-Y-Z formula: open each bullet with a strong action verb (Engineered, Architected, Shipped), include a quantifiable metric, and preserve any existing macros.`)}
             >
-              🎯 XYZ Formula
+              XYZ Formula
             </button>
             <button
               className="btn xs ghost"
               title="Fix syntax, spacing or unmatched braces in the selection"
               onClick={() => send(`Find and fix any syntax errors, unmatched braces, or broken spacing in the selected lines ${selection.startLine}-${selection.endLine} using edit_document. Change nothing else.`)}
             >
-              🧹 Fix Syntax
+              Fix Syntax
             </button>
             <button className="btn xs ghost icon-btn" onClick={clearSelection} aria-label="Clear selection" title="Clear selection">
               <Icon name="x" size={12} />

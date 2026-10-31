@@ -73,7 +73,7 @@ describe('MCP bridge formatting', () => {
     expect((await executeBridgeTool(access(), 'dexter_list_project_files')).content[0].text).toContain('refs.tex');
   });
 
-  it('reads another project file and reports staging outcomes', async () => {
+  it('reads another project file and reports applied edits', async () => {
     const withWrites: BridgeAccess = {
       ...access(),
       readFile: (args) => (args.filename === 'refs.tex'
@@ -99,7 +99,7 @@ describe('MCP bridge formatting', () => {
     });
     expect(staged.isError).toBeUndefined();
     expect(staged.content[0].text).toContain('staged Two');
-    expect(staged.content[0].text).toContain('2 files pending');
+    expect(staged.content[0].text).toContain('2 files changed');
 
     const missing: BridgeAccess = { ...withWrites, readFile: () => null };
     expect((await executeBridgeTool(missing, 'dexter_read_project_file', { filename: 'nope.md' })).isError)
@@ -127,7 +127,7 @@ describe('MCP bridge formatting', () => {
       content: 'Beta',
     });
     expect(inserted.content[0].text).toContain('inserted at 2');
-    expect(inserted.content[0].text).toContain('1 file pending');
+    expect(inserted.content[0].text).toContain('1 file changed');
 
     const compiled = await executeBridgeTool(withWrites, 'dexter_compile_document', { format: 'preview' });
     expect(compiled.isError).toBe(true);

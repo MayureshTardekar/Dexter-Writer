@@ -65,7 +65,7 @@ export default function DiffReviewModal({ summary, before, after, language, mode
                 registerLatexLanguage(monaco);
                 registerDexterThemes(monaco);
               }}
-              options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 12.5, lineHeight: 20, bracketPairColorization: { enabled: true }, wordWrap: 'on', scrollBeyondLastLine: false }}
+              options={{ renderSideBySide: true, minimap: { enabled: false }, readOnly: true, fontFamily: MONACO_FONT, fontSize: 13, lineHeight: 20, bracketPairColorization: { enabled: true }, wordWrap: 'on', scrollBeyondLastLine: false }}
             />
           </div>
           ) : (
@@ -96,7 +96,7 @@ export default function DiffReviewModal({ summary, before, after, language, mode
         </div>
         </div>
         <div className="modal-foot">
-          <button className="btn" onClick={onClose}>Discard</button>
+          <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn primary" onClick={() => onAccept(preview)}>
             Apply {accepted.size} chunk{accepted.size === 1 ? '' : 's'}
           </button>

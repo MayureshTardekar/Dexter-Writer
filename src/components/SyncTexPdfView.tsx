@@ -165,7 +165,7 @@ export default function SyncTexPdfView({ pdfData, synctex, zoom, onJump }: Props
   return (
     <div className="preview-scroll">
       <div className="typst-status muted small">
-        <span>🔗 Click any line to jump to source{sync ? '' : ' (mapping…)'}</span>
+        <span>Click any line to jump to source{sync ? '' : ' (mapping…)'}</span>
         {syncError && <span className="typst-diag"> · {syncError}</span>}
         {hint && <span> · {hint}</span>}
       </div>

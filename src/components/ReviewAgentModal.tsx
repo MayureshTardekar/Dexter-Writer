@@ -125,9 +125,9 @@ export default function ReviewAgentModal({
 
   const scoreColor =
     (report?.score ?? 0) >= 85
-      ? 'var(--accent2)'
+      ? 'var(--text)'
       : (report?.score ?? 0) >= 70
-        ? 'var(--accent)'
+        ? 'var(--warning)'
         : 'var(--danger)';
 
   return (
@@ -140,7 +140,7 @@ export default function ReviewAgentModal({
         style={{ width: '840px', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
       >
         <ModalHeader
-          icon="sparkles"
+          icon="fileText"
           title="Autonomous Document Review Agent"
           sub={`Multi-step quality, ATS, and formula audit for ${fileName}`}
           onClose={onClose}
@@ -231,8 +231,8 @@ export default function ReviewAgentModal({
             {report.atsDisclaimer && (
               <div
                 style={{
-                  background: 'rgba(234, 179, 8, 0.08)',
-                  border: '1px solid rgba(234, 179, 8, 0.28)',
+                  background: 'var(--panel2)',
+                  border: '1px solid var(--warning)',
                   borderRadius: '8px',
                   padding: '10px 14px',
                   fontSize: '11.5px',
@@ -243,9 +243,9 @@ export default function ReviewAgentModal({
                   alignItems: 'flex-start',
                 }}
               >
-                <span style={{ fontSize: '14px', lineHeight: 1.2 }}>⚠️</span>
+                <span style={{ color: 'var(--warning)', display: 'inline-flex', flex: '0 0 auto', marginTop: 1 }}><Icon name="alert" size={14} /></span>
                 <div>
-                  <strong style={{ color: '#eab308' }}>Realistic ATS Disclaimer: </strong>
+                  <strong style={{ color: 'var(--warning)' }}>Realistic ATS Disclaimer: </strong>
                   {report.atsDisclaimer}
                 </div>
               </div>
@@ -290,7 +290,7 @@ export default function ReviewAgentModal({
                 {report.strengths.length > 0 && (
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {report.strengths.map((st, i) => (
-                      <span key={i} className="badge" style={{ borderColor: 'var(--accent2)', color: 'var(--text)' }}>
+                      <span key={i} className="badge" style={{ borderColor: 'var(--border)', color: 'var(--text)' }}>
                         ✓ {st}
                       </span>
                     ))}
@@ -320,7 +320,7 @@ export default function ReviewAgentModal({
                     <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, marginBottom: 4 }}>
                       QUANTIFIABLE METRIC DENSITY
                     </div>
-                    <div style={{ fontSize: '18px', fontWeight: 700, color: report.quantifiableMetricScore >= 60 ? 'var(--accent2)' : 'var(--danger)' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: report.quantifiableMetricScore >= 60 ? 'var(--text)' : 'var(--danger)' }}>
                       {report.quantifiableMetricScore}%
                       <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--muted)', marginLeft: 6 }}>
                         of bullets contain quantifiable metrics (%, $, scale, ms)
@@ -339,8 +339,8 @@ export default function ReviewAgentModal({
                       gridColumn: report.quantifiableMetricScore === undefined ? 'span 2' : undefined,
                     }}
                   >
-                    <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 600, marginBottom: 6 }}>
-                      ✅ MATCHED SKILLS & KEYWORDS ({report.matchedKeywords.length})
+                    <div style={{ fontSize: '11px', color: 'var(--text)', fontWeight: 600, marginBottom: 6 }}>
+                      MATCHED SKILLS &amp; KEYWORDS ({report.matchedKeywords.length})
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {report.matchedKeywords.map((kw, i) => (
@@ -349,10 +349,10 @@ export default function ReviewAgentModal({
                           style={{
                             fontSize: '11px',
                             padding: '2px 7px',
-                            background: 'rgba(16, 185, 129, 0.12)',
-                            color: '#10b981',
+                            background: 'var(--panel3)',
+                            color: 'var(--text)',
                             borderRadius: '4px',
-                            border: '1px solid rgba(16, 185, 129, 0.25)',
+                            border: '1px solid var(--border)',
                           }}
                         >
                           {kw}
@@ -366,14 +366,14 @@ export default function ReviewAgentModal({
                   <div
                     style={{
                       background: 'var(--panel)',
-                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      border: '1px solid var(--danger)',
                       borderRadius: '8px',
                       padding: '10px 12px',
                       gridColumn: '1 / -1',
                     }}
                   >
-                    <div style={{ fontSize: '11px', color: '#f87171', fontWeight: 600, marginBottom: 6 }}>
-                      ❌ MISSING CRITICAL SKILLS & GAPS (Kami / Expected by JD):
+                    <div style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: 600, marginBottom: 6 }}>
+                      MISSING CRITICAL SKILLS & GAPS (Kami / Expected by JD):
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {report.missingKeywords.map((kw, i) => (
@@ -382,10 +382,10 @@ export default function ReviewAgentModal({
                           style={{
                             fontSize: '11px',
                             padding: '2px 7px',
-                            background: 'rgba(239, 68, 68, 0.12)',
-                            color: '#f87171',
+                            background: 'var(--danger-soft)',
+                            color: 'var(--danger)',
                             borderRadius: '4px',
-                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            border: '1px solid var(--danger)',
                           }}
                         >
                           + {kw}
@@ -413,7 +413,7 @@ export default function ReviewAgentModal({
 
               {unappliedCount > 0 && (
                 <button className="btn primary xs" onClick={handleFixAll}>
-                  ⚡ Fix All ({unappliedCount}) Automatically
+                  Fix All ({unappliedCount}) Automatically
                 </button>
               )}
             </div>
@@ -428,9 +428,9 @@ export default function ReviewAgentModal({
                 const sevColor =
                   iss.severity === 'critical'
                     ? 'var(--danger)'
-                    : iss.severity === 'warning'
-                      ? '#f59e0b'
-                      : 'var(--accent2)';
+                      : iss.severity === 'warning'
+                        ? 'var(--warning)'
+                        : 'var(--muted)';
 
                 return (
                   <div
@@ -454,8 +454,9 @@ export default function ReviewAgentModal({
                             fontWeight: 700,
                             padding: '2px 6px',
                             borderRadius: '4px',
-                            color: '#fff',
-                            background: sevColor,
+                            color: iss.severity === 'suggestion' ? 'var(--text)' : '#fff',
+                            background: iss.severity === 'suggestion' ? 'var(--panel3)' : sevColor,
+                            border: iss.severity === 'suggestion' ? '1px solid var(--border)' : '1px solid transparent',
                             textTransform: 'uppercase',
                           }}
                         >
@@ -483,8 +484,8 @@ export default function ReviewAgentModal({
                           {iss.originalText || '(see lines in editor)'}
                         </pre>
                       </div>
-                      <div style={{ background: 'var(--panel)', padding: '6px 8px', borderRadius: '6px', fontSize: '11.5px', border: '1px solid var(--accent2)' }}>
-                        <div className="muted small" style={{ marginBottom: '2px', color: 'var(--accent2)' }}>Proposed Improvement:</div>
+                      <div style={{ background: 'var(--panel)', padding: '6px 8px', borderRadius: '6px', fontSize: '11.5px', border: '1px solid var(--border)' }}>
+                        <div className="muted small" style={{ marginBottom: '2px', color: 'var(--muted)' }}>Proposed Improvement:</div>
                         <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
                           {iss.proposedText}
                         </pre>

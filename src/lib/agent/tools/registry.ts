@@ -84,7 +84,7 @@ export async function executeTool(ctx: ToolContext, call: ToolCall): Promise<Too
   if (isExternal && ctx.callExternal) {
     try {
       const text = await ctx.callExternal(call.name, call.args ?? {});
-      return { ...base, content: text, badge: `🔌 ${call.name}` };
+      return { ...base, content: text, badge: `${call.name}` };
     } catch (e) {
       return {
         ...base,

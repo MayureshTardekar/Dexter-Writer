@@ -126,7 +126,7 @@ export function applyStringEdit(
     return {
       content: `Replaced ${hits.length} occurrence(s) of the target text.`,
       newContent: next,
-      badge: `✏️ Replaced ${hits.length}×`,
+      badge: `Replaced ${hits.length}×`,
     };
   }
 
@@ -137,7 +137,7 @@ export function applyStringEdit(
   return {
     content: `Edit applied at lines ${startLine}-${endLine}. Line numbers after this point may have shifted; re-read before any further positional edit.`,
     newContent: next,
-    badge: `✏️ Edited lines ${startLine}-${endLine}`,
+    badge: `Edited lines ${startLine}-${endLine}`,
   };
 }
 
@@ -182,7 +182,7 @@ function searchDocument(content: string, args: Record<string, unknown>): ToolOut
   if (body.length > MAX_SEARCH_CHARS) body = `${body.slice(0, MAX_SEARCH_CHARS)}\n… [output truncated]`;
   return {
     content: `${found} match(es)${found >= max ? ` (capped at ${max})` : ''}:\n${body}`,
-    badge: `🔍 Searched "${pattern.slice(0, 24)}" · ${found} hit(s)`,
+    badge: `Searched "${pattern.slice(0, 24)}" · ${found} hit(s)`,
   };
 }
 
@@ -193,7 +193,7 @@ export function executeDocumentTool(content: string, mode: DocMode, call: ToolCa
   switch (call.name) {
     case 'read_document_content':
     case 'get_document_content': {
-      if (!content) return { content: '(the document is empty)', badge: '🛠️ Read document' };
+      if (!content) return { content: '(the document is empty)', badge: 'Read document' };
       const start = a.start_line === undefined ? undefined : clampInt(a.start_line, 1, 1_000_000, 1);
       const end = a.end_line === undefined ? undefined : clampInt(a.end_line, 1, 1_000_000, 1);
       const text = readDocumentContent(content, start, end);
@@ -203,7 +203,7 @@ export function executeDocumentTool(content: string, mode: DocMode, call: ToolCa
         .map((l, i) => `${from + i}: ${l}`)
         .join('\n');
       const body = numbered.length > MAX_READ_CHARS ? `${numbered.slice(0, MAX_READ_CHARS)}\n… [truncated — narrow the range]` : numbered;
-      return { content: body, badge: `🛠️ Read lines ${from}-${end ?? content.split('\n').length}` };
+      return { content: body, badge: `Read lines ${from}-${end ?? content.split('\n').length}` };
     }
 
     case 'get_document_outline': {
@@ -211,7 +211,7 @@ export function executeDocumentTool(content: string, mode: DocMode, call: ToolCa
       const text = outline.map((o) => `${'  '.repeat(Math.max(0, o.level - 1))}- ${o.title} (line ${o.line})`).join('\n');
       return {
         content: text || '(no headings found — the document has no section structure yet)',
-        badge: `🗂️ Outline · ${outline.length} heading(s)`,
+        badge: `Outline · ${outline.length} heading(s)`,
       };
     }
 
@@ -232,7 +232,7 @@ export function executeDocumentTool(content: string, mode: DocMode, call: ToolCa
       return {
         content: `${r.message}. Line numbers below line ${target} have shifted.`,
         newContent: r.newContent,
-        badge: `✨ Inserted at line ${target}`,
+        badge: `Inserted at line ${target}`,
       };
     }
 
@@ -246,7 +246,7 @@ export function executeDocumentTool(content: string, mode: DocMode, call: ToolCa
       return {
         content: `${r.message}. Line numbers after line ${start} may have shifted.`,
         newContent: r.newContent,
-        badge: `⚡ Replaced lines ${start}-${end}`,
+        badge: `Replaced lines ${start}-${end}`,
       };
     }
 

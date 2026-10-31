@@ -21,27 +21,28 @@ export default function LiveModal({ initialRoom, initialPassword, initialName, b
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Live collaboration">
         <ModalHeader
-          icon="sparkles"
+          icon="plug"
           title="Live Collaboration"
           category="P2P"
           sub="Peer-to-peer via WebRTC + Yjs CRDTs. Signaling only introduces peers — document content never touches a server. Optional password enables end-to-end encryption."
           onClose={onClose}
         />
         <div className="modal-body">
-        <label>Display name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Writer-ABCD" />
-        <label>Room ID</label>
-        <div className="row">
-          <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="e.g. thesis-2026" style={{ flex: 1 }} />
+        <label htmlFor="live-name">Display name</label>
+        <input id="live-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Writer-ABCD" autoComplete="nickname" />
+        <label htmlFor="live-room">Room ID</label>
+        <div className="live-room-row">
+          <input id="live-room" value={room} onChange={(e) => setRoom(e.target.value)} placeholder="e.g. thesis-2026" autoComplete="off" />
           <button
             className="btn"
             onClick={() => setRoom(Math.random().toString(36).slice(2, 10))}
+            title="Generate a random room ID"
           >
             New
           </button>
         </div>
-        <label>Room password (optional)</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Shared secret for E2E encryption" />
+        <label htmlFor="live-password">Room password (optional)</label>
+        <input id="live-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Shared secret for end-to-end encryption" autoComplete="off" />
         {error && <div className="mcp-error">{error}</div>}
         </div>
         <div className="modal-foot">

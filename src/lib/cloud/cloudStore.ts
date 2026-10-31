@@ -54,6 +54,32 @@ export interface AcceptedCloudEdit {
   version: number;
 }
 
+export interface CloudRevision {
+  id: number;
+  projectId: string;
+  fileId: string | null;
+  path: string;
+  version: number;
+  actor: 'human' | 'ai';
+  summary: string;
+  createdAt: string;
+}
+
+export interface CloudRevisionRestore {
+  projectId: string;
+  fileId: string | null;
+  path: string;
+  version: number;
+  deleted: boolean;
+}
+
+export interface CloudFileMeta {
+  id: string;
+  path: string;
+  version: number;
+  updatedAt: string;
+}
+
 interface ProjectRow {
   id: string;
   name: string;
@@ -86,6 +112,37 @@ interface FileVersionRow {
   id: string;
   content: string;
   version: number;
+}
+
+interface RevisionRow {
+  id: number;
+  project_id: string;
+  file_id: string | null;
+  path: string;
+  version: number;
+  actor: 'human' | 'ai';
+  summary: string | null;
+  created_at: string;
+}
+
+interface FileMetaRow {
+  id: string;
+  path: string;
+  version: number;
+  updated_at: string;
+}
+
+function revisionFromRow(row: RevisionRow): CloudRevision {
+  return {
+    id: Number(row.id),
+    projectId: row.project_id,
+    fileId: row.file_id,
+    path: row.path,
+    version: row.version,
+    actor: row.actor,
+    summary: row.summary ?? '',
+    createdAt: row.created_at,
+  };
 }
 
 function stagedEditFromRow(row: StagedEditRow): CloudStagedEdit {
@@ -346,6 +403,70 @@ export async function deleteCloudProject(projectId: string): Promise<void> {
 
   const { error } = await db.from('projects').delete().eq('id', projectId);
   if (error) throw new Error(error.message);
+}
+
+export async function listRecentRevisions(projectId?: string): Promise<CloudRevision[]> {
+  const db = requireSupabase();
+  let query = db
+    .from('revisions')
+    .select('id,project_id,file_id,path,version,actor,summary,created_at')
+    .eq('actor', 'ai')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (projectId) query = query.eq('project_id', projectId);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as RevisionRow[]).map(revisionFromRow);
+}
+
+export async function restoreCloudRevision(revisionId: number): Promise<CloudRevisionRestore> {
+  const db = requireSupabase();
+  const { data, error } = await db.rpc('restore_cloud_revision', { p_revision_id: revisionId });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('The revision could not be restored.');
+  const restored = row as {
+    project_id: string;
+    file_id: string | null;
+    file_path: string;
+    version: number;
+    deleted: boolean;
+  };
+  return {
+    projectId: restored.project_id,
+    fileId: restored.file_id,
+    path: restored.file_path,
+    version: restored.version,
+    deleted: restored.deleted,
+  };
+}
+
+export async function listCloudFileMeta(projectId: string): Promise<CloudFileMeta[]> {
+  const db = requireSupabase();
+  const { data, error } = await db
+    .from('files')
+    .select('id,path,version,updated_at')
+    .eq('project_id', projectId)
+    .order('path');
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as FileMetaRow[]).map((row) => ({
+    id: row.id,
+    path: row.path,
+    version: row.version,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export async function fetchCloudFiles(projectId: string, paths: string[]): Promise<CloudFileRow[]> {
+  if (paths.length === 0) return [];
+  const db = requireSupabase();
+  const { data, error } = await db
+    .from('files')
+    .select('id,path,content,mode,version,updated_at')
+    .eq('project_id', projectId)
+    .in('path', paths);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CloudFileRow[];
 }
 
 export async function listPendingEdits(): Promise<CloudStagedEdit[]> {

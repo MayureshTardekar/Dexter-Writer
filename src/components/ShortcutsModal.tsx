@@ -25,17 +25,17 @@ export default function ShortcutsModal({ onClose }: Props) {
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Keyboard Shortcuts">
         <ModalHeader icon="keyboard" title="Keyboard Shortcuts" sub="Quick reference for Dexter Write power features." onClose={onClose} />
         <div className="modal-body">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+          <div className="shortcut-list">
             {shortcuts.map((s, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '12.5px' }}>
+              <div key={i} className="shortcut-row">
                 <kbd>{s.key}</kbd>
-                <span className="muted" style={{ textAlign: 'right' }}>{s.desc}</span>
+                <span className="muted">{s.desc}</span>
               </div>
             ))}
           </div>
         </div>
         <div className="modal-foot">
-          <button className="btn primary" onClick={onClose}>Got it</button>
+          <button className="btn" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>

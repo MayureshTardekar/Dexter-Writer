@@ -2,24 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ProjectAsset } from '../lib/assets';
 import type { ProjectFile } from '../lib/projectFiles';
 import {
-  acceptStagedEdit,
   deleteCloudProject,
   getCloudAccount,
-  getStagedEdit,
   importProject,
   listCloudProjects,
-  listPendingEdits,
+  listRecentRevisions,
   loadProject,
   onCloudAuthChange,
   pushProject,
-  rejectStagedEdit,
+  restoreCloudRevision,
   signInWithGitHub,
   signOutFromCloud,
   type CloudAccount,
   type CloudProject,
-  type CloudStagedEdit,
+  type CloudRevision,
 } from '../lib/cloud/cloudStore';
 import { cloudConfigured, mcpEndpoint } from '../lib/cloud/supabase';
+import { askConfirm } from '../lib/dialog';
 import Icon from './icons';
 import ModalHeader from './ModalHeader';
 
@@ -29,6 +28,7 @@ interface Props {
   activeName: string;
   localProjectId: string;
   onLoad: (files: ProjectFile[], assets: ProjectAsset[], activeName: string) => Promise<void> | void;
+  onLink: (projectId: string) => void;
   onClose: () => void;
 }
 
@@ -51,11 +51,10 @@ function formatUpdated(value: string): string {
   return Number.isNaN(date.getTime()) ? 'unknown' : date.toLocaleString();
 }
 
-export default function CloudPanel({ files, assets, activeName, localProjectId, onLoad, onClose }: Props) {
+export default function CloudPanel({ files, assets, activeName, localProjectId, onLoad, onLink, onClose }: Props) {
   const [account, setAccount] = useState<CloudAccount | null>(null);
   const [projects, setProjects] = useState<CloudProject[]>([]);
-  const [pending, setPending] = useState<CloudStagedEdit[]>([]);
-  const [preview, setPreview] = useState<{ id: string; content: string } | null>(null);
+  const [revisions, setRevisions] = useState<CloudRevision[]>([]);
   const [name, setName] = useState(() => defaultProjectName(files, activeName));
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -67,12 +66,12 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
       const next = await getCloudAccount();
       setAccount(next);
       if (next?.allowed) {
-        const [nextProjects, nextPending] = await Promise.all([listCloudProjects(), listPendingEdits()]);
+        const [nextProjects, nextRevisions] = await Promise.all([listCloudProjects(), listRecentRevisions()]);
         setProjects(nextProjects);
-        setPending(nextPending);
+        setRevisions(nextRevisions);
       } else {
         setProjects([]);
-        setPending([]);
+        setRevisions([]);
       }
       setError('');
     } catch (e) {
@@ -106,31 +105,39 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
     await signOutFromCloud();
     setAccount(null);
     setProjects([]);
-    setPending([]);
-    setPreview(null);
+    setRevisions([]);
   });
 
   const handleImport = () => run('import', async () => {
     const id = await importProject({ name, files, assets, activeName });
+    onLink(id);
     setProjects(await listCloudProjects());
     setNotice(`Imported ${files.length} file${files.length === 1 ? '' : 's'} and ${assets.length} image${assets.length === 1 ? '' : 's'} into the cloud (${id.slice(0, 8)}).`);
   });
 
   const handlePush = (project: CloudProject) => run(`push:${project.id}`, async () => {
     await pushProject(project.id, files, activeName, assets);
+    onLink(project.id);
     setProjects(await listCloudProjects());
-    setNotice(`Pushed the local tree to “${project.name}”. Any cloud-only files were removed.`);
+    setNotice(`Pushed the local tree to �?o${project.name}�??. Any cloud-only files were removed.`);
   });
 
   const handleLoad = (project: CloudProject) => run(`load:${project.id}`, async () => {
     const bundle = await loadProject(project.id, localProjectId);
     await onLoad(bundle.files, bundle.assets, bundle.activeName ?? bundle.files[0]?.name ?? '');
+    onLink(project.id);
     const warning = bundle.warnings.length > 0 ? ` ${bundle.warnings.length} image${bundle.warnings.length === 1 ? '' : 's'} could not be downloaded.` : '';
     setNotice(`Loaded “${project.name}” with ${bundle.files.length} files and ${bundle.assets.length} images.${warning}`);
   });
 
-  const handleDelete = (project: CloudProject) => {
-    if (!window.confirm(`Delete “${project.name}” from the cloud? The local copy stays on this device.`)) return;
+  const handleDelete = async (project: CloudProject) => {
+    const proceed = await askConfirm({
+      title: `Delete “${project.name}”?`,
+      message: 'The cloud copy will be removed. The local copy stays on this device.',
+      confirmLabel: 'Delete from cloud',
+      danger: true,
+    });
+    if (!proceed) return;
     void run(`delete:${project.id}`, async () => {
       await deleteCloudProject(project.id);
       setProjects(await listCloudProjects());
@@ -152,31 +159,13 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
   const projectName = (projectId: string): string =>
     projects.find((project) => project.id === projectId)?.name ?? projectId.slice(0, 8);
 
-  const handlePreview = (edit: CloudStagedEdit) => run(`preview:${edit.id}`, async () => {
-    if (preview?.id === edit.id) {
-      setPreview(null);
-      return;
-    }
-    const detail = await getStagedEdit(edit.id);
-    setPreview({ id: edit.id, content: detail.newContent });
-  });
-
-  const handleAccept = (edit: CloudStagedEdit) => {
-    if (!window.confirm(`Accept the AI edit to “${edit.path}”?\n\n${edit.summary}`)) return;
-    void run(`accept:${edit.id}`, async () => {
-      const accepted = await acceptStagedEdit(edit.id);
-      setPreview(null);
+  const handleUndo = (revision: CloudRevision) => {
+    void run(`undo:${revision.id}`, async () => {
+      const restored = await restoreCloudRevision(revision.id);
       await refresh();
-      setNotice(`Accepted ${accepted.path} (version ${accepted.version}). Load “${projectName(edit.projectId)}” to see it in the editor.`);
-    });
-  };
-
-  const handleReject = (edit: CloudStagedEdit) => {
-    void run(`reject:${edit.id}`, async () => {
-      await rejectStagedEdit(edit.id);
-      setPreview(null);
-      await refresh();
-      setNotice(`Rejected the AI edit to ${edit.path}.`);
+      setNotice(restored.deleted
+        ? `Undid the creation of ${restored.path}. Load the project from cloud to refresh the editor.`
+        : `Restored ${restored.path} to its previous version (v${restored.version}). Load the project from cloud to refresh the editor.`);
     });
   };
 
@@ -187,7 +176,7 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
           icon="cloud"
           title="Cloud & Remote MCP"
           category="Connected"
-          sub="Sync this project to Supabase so Claude and ChatGPT can read it and stage edits."
+          sub="Sync this project to Supabase so Claude and ChatGPT can read and edit it directly, with revision undo."
           onClose={onClose}
         />
         <div className="modal-body">
@@ -234,7 +223,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key`}</pre>
             <>
               <div className="row" style={{ justifyContent: 'space-between', marginTop: 0 }}>
                 <div>
-                  <strong style={{ fontFamily: 'var(--display)' }}>@{account.username}</strong>
+                  <strong>@{account.username}</strong>
                   <span className={`cloud-badge ${account.allowed ? 'ok' : ''}`} style={{ marginLeft: 8 }}>
                     {account.allowed ? 'Allowed' : 'Not allowed'}
                   </span>
@@ -257,52 +246,43 @@ on conflict (github_username) do nothing;`}</pre>
               {account.allowed && (
                 <>
                   <div className="cloud-card">
-                    <h3>Remote MCP URL</h3>
-                    <p className="muted small" style={{ margin: 0 }}>
-                      Add this as a custom connector in Claude or ChatGPT. OAuth uses your Supabase project; no API key to paste.
-                    </p>
-                    <div className="cloud-url">
-                      <code>{mcpEndpoint() ?? 'Run supabase functions deploy mcp first.'}</code>
+                    <div className="row" style={{ justifyContent: 'space-between', marginTop: 0 }}>
+                      <h3>Remote MCP endpoint</h3>
                       <button className="btn xs" onClick={copyMcpUrl} disabled={!mcpEndpoint()}>
-                        <Icon name="copy" size={13} /> Copy
+                        Copy URL
                       </button>
                     </div>
+                    <p className="muted small" style={{ margin: 0 }}>
+                      Add this URL as a custom connector in Claude or ChatGPT. Edits apply immediately and stay undoable here.
+                    </p>
+                    <pre className="cloud-code">{mcpEndpoint() ?? 'Cloud sync is not configured in this build.'}</pre>
                   </div>
 
                   <div className="cloud-card">
                     <div className="row" style={{ justifyContent: 'space-between', marginTop: 0 }}>
-                      <h3>Pending AI edits</h3>
+                      <h3>Recent MCP edits</h3>
                       <button className="btn xs ghost" onClick={() => void run('refresh-edits', refresh)} disabled={busy !== null}>
                         <Icon name="refresh" size={13} /> Refresh
                       </button>
                     </div>
-                    {pending.length === 0 ? (
-                      <div className="cloud-empty">No edits waiting. Ask Claude or ChatGPT to stage one with the remote MCP connector.</div>
+                    {revisions.length === 0 ? (
+                      <div className="cloud-empty">No MCP edits yet. Ask Claude or ChatGPT to edit a file; changes apply immediately.</div>
                     ) : (
                       <div className="cloud-pending">
-                        {pending.map((edit) => (
-                          <div className="cloud-pending-item" key={edit.id}>
+                        {revisions.map((revision) => (
+                          <div className="cloud-pending-item" key={revision.id}>
                             <div className="cloud-pending-head">
                               <div style={{ minWidth: 0 }}>
-                                <strong>{edit.path}</strong>
-                                <span className="muted small"> · {projectName(edit.projectId)} · base v{edit.baseVersion}</span>
+                                <strong>{revision.path}</strong>
+                                <span className="muted small"> · {projectName(revision.projectId)} · {revision.version === 0 ? 'created' : `before v${revision.version}`} · {formatUpdated(revision.createdAt)}</span>
                               </div>
                               <div className="cloud-item-actions">
-                                <button className="btn xs" onClick={() => handlePreview(edit)} disabled={busy !== null}>
-                                  {preview?.id === edit.id ? 'Hide' : 'View'}
-                                </button>
-                                <button className="btn xs primary" onClick={() => handleAccept(edit)} disabled={busy !== null}>
-                                  {busy === `accept:${edit.id}` ? 'Accepting…' : 'Accept'}
-                                </button>
-                                <button className="btn xs danger" onClick={() => handleReject(edit)} disabled={busy !== null}>
-                                  {busy === `reject:${edit.id}` ? 'Rejecting…' : 'Reject'}
+                                <button className="btn xs" onClick={() => handleUndo(revision)} disabled={busy !== null}>
+                                  <Icon name="undo" size={12} /> {busy === `undo:${revision.id}` ? 'Restoring…' : 'Undo'}
                                 </button>
                               </div>
                             </div>
-                            <p className="cloud-pending-summary">{edit.summary}</p>
-                            {preview?.id === edit.id && (
-                              <pre className="cloud-preview">{preview.content.slice(0, 20_000)}{preview.content.length > 20_000 ? '\n\n[preview truncated at 20,000 characters]' : ''}</pre>
-                            )}
+                            <p className="cloud-pending-summary">{revision.summary || 'AI edit'}</p>
                           </div>
                         ))}
                       </div>
@@ -365,7 +345,7 @@ on conflict (github_username) do nothing;`}</pre>
             </>
           )}
 
-          {notice && <p className="small" style={{ color: 'var(--accent2)', marginBottom: 0 }}>{notice}</p>}
+          {notice && <p className="small" style={{ color: 'var(--muted)', marginBottom: 0 }}>{notice}</p>}
           {error && <div className="cloud-warning">{error}</div>}
         </div>
         <div className="modal-foot">

@@ -8,6 +8,7 @@ import {
   type McpTransport,
 } from '../lib/externalMcp';
 import type { BridgeStatus } from '../lib/mcp/bridgeClient';
+import { askConfirm } from '../lib/dialog';
 import { toast } from '../lib/toast';
 import ModalHeader from './ModalHeader';
 
@@ -175,8 +176,8 @@ export default function McpManager({
               </button>
             </div>
             <p className="muted small" style={{ margin: '7px 0' }}>
-              Let MCP clients such as Claude Desktop, Cursor, or ChatGPT web read this tab and stage edits.
-              Nothing is applied until you review and accept it in Dexter Write.
+              Let MCP clients such as Claude Desktop, Cursor, or ChatGPT web read and edit this tab directly.
+              Every applied edit is snapshotted, and Undo stays available from the notice or document history.
             </p>
             <div className="mcp-add" style={{ margin: '8px 0' }}>
               <input
@@ -253,7 +254,7 @@ export default function McpManager({
               </ol>
               <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
                 Custom MCP servers in ChatGPT depend on your plan, workspace, and permissions. Tunnel
-                requests are outbound-only, and every edit is still staged for your review.
+                requests are outbound-only, and every edit is applied directly with local snapshots for undo.
               </p>
             </details>
           </div>
@@ -298,9 +299,9 @@ export default function McpManager({
                 <button className="btn xs" disabled={busy === s.id} onClick={() => connect(s.id)}>
                   {busy === s.id ? 'Connecting…' : s.status === 'connected' ? 'Refresh' : 'Connect'}
                 </button>
-                <button className="btn xs danger" onClick={() => remove(s.id)}>Remove</button>
+                <button className="btn xs danger" onClick={() => { void askConfirm({ title: `Remove ${s.name}?`, message: 'This deletes the saved endpoint and its cached tool list. You can add it again later.', confirmLabel: 'Remove server', danger: true }).then((ok) => { if (ok) remove(s.id); }); }}>Remove</button>
               </div>
-              {s.lastError && <div className="mcp-error">❌ {s.lastError}</div>}
+              {s.lastError && <div className="mcp-error">{s.lastError}</div>}
               {s.tools.length > 0 && (
                 <div className="mcp-tools">
                   {s.tools.map((t) => (

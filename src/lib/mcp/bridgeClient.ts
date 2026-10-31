@@ -211,7 +211,7 @@ function errorResult(text: string): McpTextResult {
 function mutationResult(outcome: BridgeMutationOutcome): McpTextResult {
   if (!outcome.ok) return errorResult(outcome.message);
   const suffix = outcome.files
-    ? `\n${outcome.files} file${outcome.files === 1 ? '' : 's'} pending in the Dexter Write review.`
+    ? `\n${outcome.files} file${outcome.files === 1 ? '' : 's'} changed in Dexter Write. Undo is available.`
     : '';
   return textResult(`${outcome.message}${suffix}`);
 }
@@ -236,11 +236,11 @@ export async function executeBridgeTool(
         return textResult(formatReadActive(doc, args));
       }
       case 'dexter_stage_edit': {
-        if (!access.stageEdit) return errorResult('External staging is not available in this build.');
+        if (!access.stageEdit) return errorResult('External edits are not available in this build.');
         return mutationResult(await access.stageEdit(args));
       }
       case 'dexter_insert_content': {
-        if (!access.insertContent) return errorResult('External staging is not available in this build.');
+        if (!access.insertContent) return errorResult('External edits are not available in this build.');
         return mutationResult(await access.insertContent(args));
       }
       case 'dexter_compile_document': {

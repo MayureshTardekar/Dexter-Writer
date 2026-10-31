@@ -197,7 +197,7 @@ function UnifiedToolbar({
             width: 7,
             height: 7,
             borderRadius: "50%",
-            background: compiling ? "#60a5fa" : "#10b981",
+            background: compiling ? "var(--warning)" : "var(--text)",
             display: "inline-block",
           }}
         />
@@ -207,11 +207,11 @@ function UnifiedToolbar({
       {warningsCount > 0 && !compiling && onToggleLog && (
         <button
           className="btn xs ghost"
-          style={{ fontSize: 10, padding: "1px 5px", color: "#fbbf24", height: "20px" }}
+          style={{ fontSize: 10, padding: "1px 5px", color: "var(--warning)", height: "20px" }}
           title={`${warningsCount} TeX warning(s)`}
           onClick={onToggleLog}
         >
-          ⚠ {warningsCount}
+          {warningsCount}
         </button>
       )}
 
@@ -285,7 +285,7 @@ function UnifiedToolbar({
           title={syncMode ? "Back to plain PDF view" : "Clickable PDF — click any line to jump to source"}
           style={{ height: "20px", fontSize: 10, padding: "0 5px" }}
         >
-          {syncMode ? "🔗 Click" : "Click"}
+          {syncMode ? "Click" : "Click"}
         </button>
       )}
 
@@ -486,8 +486,8 @@ function TypstPreview({
       )}
       {diagnostics.length > 0 && <pre className="typst-diag-list" style={{ margin: 0 }}>{diagnostics.slice(0, 8).join("\n")}</pre>}
       {error && (
-        <div style={{ padding: "8px 12px", background: "rgba(239, 68, 68, 0.15)", color: "#f87171", fontSize: "11px", fontFamily: "var(--mono)" }}>
-          ⚠️ {error}
+        <div style={{ padding: "8px 12px", background: "var(--danger-soft)", color: "var(--danger)", fontSize: "11px", fontFamily: "var(--mono)" }}>
+          {error}
         </div>
       )}
       {svg ? (
@@ -800,56 +800,16 @@ function LatexPreview({
 
       {/* 3. Error message with Fix with AI */}
       {error && (
-        <div
-          style={{
-            padding: "8px 12px",
-            background: "rgba(239, 68, 68, 0.15)",
-            borderBottom: "1px solid rgba(239, 68, 68, 0.3)",
-            color: "#f87171",
-            fontSize: "11px",
-            fontFamily: "var(--mono)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            zIndex: 5,
-          }}
-        >
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-            ⚠️ {error}
-          </span>
+        <div className="preview-error" role="alert">
+          <span className="preview-error-msg">{error}</span>
           {onFixProposal && (
             <button
-              className="btn xs primary"
+              className="btn xs primary preview-error-fix"
               onClick={() => void handleFixWithAi()}
               disabled={fixing}
-              style={{
-                fontSize: 10,
-                padding: "2px 8px",
-                height: "22px",
-                flexShrink: 0,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                background: "linear-gradient(135deg, #2563eb, #7c3aed)",
-                color: "#fff",
-                border: "none",
-                borderRadius: 4,
-                cursor: fixing ? "wait" : "pointer",
-              }}
               title="Analyze compiler log and generate fix with AI"
             >
-              {fixing ? (
-                <>
-                  <span style={{ display: "inline-block" }}>⏳</span>
-                  <span>Fixing…</span>
-                </>
-              ) : (
-                <>
-                  <span>🪄</span>
-                  <span>Fix with AI</span>
-                </>
-              )}
+              {fixing ? 'Fixing…' : 'Fix with AI'}
             </button>
           )}
         </div>
@@ -858,7 +818,7 @@ function LatexPreview({
       {/* 4. Full-Bleed PDF Preview (iframe default, clickable SyncTeX view on toggle) */}
       {pdfUrl ? (
         syncView && pdfData ? (
-          <div style={{ flex: 1, width: "100%", height: "100%", overflow: "auto", position: "relative", background: "#323639" }}>
+          <div style={{ flex: 1, width: "100%", height: "100%", overflow: "auto", position: "relative", background: "#2a2a2c" }}>
             <Suspense
               fallback={<div className="muted small" style={{ padding: 16 }}>Loading clickable view…</div>}
             >
@@ -871,7 +831,7 @@ function LatexPreview({
             </Suspense>
           </div>
         ) : (
-        <div style={{ flex: 1, width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "#323639" }}>
+        <div style={{ flex: 1, width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "#2a2a2c" }}>
           <iframe
             key={`${pdfUrl}-${zoom}`}
             src={`${pdfUrl}#view=FitH&zoom=${zoom === 1.0 ? "page-width" : Math.round(zoom * 100)}&toolbar=0&navpanes=0`}
@@ -885,7 +845,7 @@ function LatexPreview({
               display: "block",
               margin: 0,
               padding: 0,
-              background: "#323639",
+              background: "#2a2a2c",
             }}
           />
         </div>
@@ -896,10 +856,10 @@ function LatexPreview({
             <div className="engine-gate">
               <h3>Real PDF preview</h3>
               <p>
-                Compiles with Overleaf-grade LaTeX compiler. Extra packages fetch on demand.
+                The cloud compiler is unavailable. Local compilation needs a one-time download of about 120 MB, then it stays cached and works offline.
               </p>
               <button className="btn primary" onClick={() => void doCompile(content)}>
-                Load engine &amp; compile
+                Download engine and compile
               </button>
             </div>
           )}

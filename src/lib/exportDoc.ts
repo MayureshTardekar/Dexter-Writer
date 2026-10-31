@@ -81,14 +81,17 @@ async function printMarkdown(title: string, source: string, project: ProjectRunt
   } finally { window.setTimeout(() => frame.remove(), 60000); }
 }
 
+function docStem(docName: string | undefined, stamp: string): string {
+  const base = docName?.trim().split(/[\\/]/).pop() ?? '';
+  return base.replace(/\.[^/.]+$/, '') || `document-${stamp}`;
+}
+
 export function resolveExportFilename(
   kind: ExportKind,
   docName?: string,
   stamp = new Date().toISOString().slice(0, 10),
 ): string {
-  const stem = docName?.trim()
-    ? docName.replace(/\.[^/.]+$/, '')
-    : `document-${stamp}`;
+  const stem = docStem(docName, stamp);
 
   switch (kind) {
     case 'pdf':
@@ -114,9 +117,7 @@ export function resolveExportFilename(
 export async function doExport(kind: ExportKind, content: string, mode: DocMode, docName = 'main.md', project: ProjectRuntime = { files: [], assets: [], urls: {}, activeName: docName, revision: 0 }): Promise<void> {
   const stamp = new Date().toISOString().slice(0, 10);
   const filename = resolveExportFilename(kind, docName, stamp);
-  const stem = docName?.trim()
-    ? docName.replace(/\.[^/.]+$/, '')
-    : `document-${stamp}`;
+  const stem = docStem(docName, stamp);
 
   if (kind === 'pdf' && mode === 'typst') return doExport('typst-pdf', content, mode, docName, project);
   if (kind === 'pdf') {

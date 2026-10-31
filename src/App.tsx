@@ -21,13 +21,14 @@ import HistoryModal from './components/HistoryModal';
 import CitationsModal from './components/CitationsModal';
 import ReviewAgentModal from './components/ReviewAgentModal';
 import DiffReviewModal from './components/DiffReviewModal';
-import WorkspaceReviewModal, { type WorkspaceReviewDraft } from './components/WorkspaceReviewModal';
 import ExternalAgentBanner from './components/ExternalAgentBanner';
 import CommandPalette, { type PaletteAction } from './components/CommandPalette';
 import Toasts from './components/Toasts';
+import DialogHost from './components/DialogHost';
 import ModalHeader from './components/ModalHeader';
 import Icon from './components/icons';
 import { toast } from './lib/toast';
+import { askConfirm, askPrompt } from './lib/dialog';
 import { type CitationEntry } from './lib/citations';
 import { saveSnapshot } from './lib/history';
 import { TEMPLATES, getTemplate, type DocMode } from './lib/templates';
@@ -50,6 +51,18 @@ import {
 import { vaultGet, vaultSet } from './lib/vault';
 import { doExport, exportProjectZip, type ExportKind } from './lib/exportDoc';
 import { loadServers, saveServers, type ExternalMcpServer } from './lib/externalMcp';
+import { fetchCloudFiles, listCloudFileMeta } from './lib/cloud/cloudStore';
+import { cloudConfigured } from './lib/cloud/supabase';
+import {
+  changedFiles,
+  clearCloudBaseline,
+  contentHash,
+  loadCloudBaseline,
+  makeBaseline,
+  matchesBaseline,
+  saveCloudBaseline,
+  type CloudSyncBaseline,
+} from './lib/cloud/remoteSync';
 import {
   McpBridgeClient,
   type BridgeAccess,
@@ -87,6 +100,7 @@ import {
 import type { RepoDoc } from './lib/github';
 
 const LS_THEME = 'dexter-write:theme';
+const LS_CLOUD_PROJECT = 'dexter-write:cloud-project-id';
 
 function newAiActionId(): string {
   return `ai_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -102,6 +116,11 @@ export default function App() {
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('dexter-write:baseUrl') || 'http://localhost:11434/v1');
   const [apiKey, setApiKey] = useState('');
   const [projectId] = useState(() => { const existing = localStorage.getItem('dexter-write:project-id'); if (existing) return existing; const id = crypto.randomUUID(); localStorage.setItem('dexter-write:project-id', id); return id; });
+  const [cloudProjectId, setCloudProjectId] = useState(() => {
+    try { return localStorage.getItem(LS_CLOUD_PROJECT) || ''; } catch { return ''; }
+  });
+  const [cloudLinkEpoch, setCloudLinkEpoch] = useState(0);
+  const cloudBaselineRef = useRef<CloudSyncBaseline>(cloudProjectId ? loadCloudBaseline(cloudProjectId) : {});
   const [assets, setAssets] = useState<ProjectAsset[]>([]);
   const [assetUrls, setAssetUrls] = useState<Record<string, string>>({});
   const [sharedAssetIds, setSharedAssetIds] = useState<string[]>([]);
@@ -131,11 +150,8 @@ export default function App() {
     return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
   });
   const [mcpBridgeStatus, setMcpBridgeStatus] = useState<BridgeStatus>('off');
-  const [externalWorkspace, setExternalWorkspace] = useState<StagedWorkspace | null>(null);
-  const [externalReviewOpen, setExternalReviewOpen] = useState(false);
-  const [externalReviewDraft, setExternalReviewDraft] = useState<WorkspaceReviewDraft | null>(null);
-  const [externalReviewVersion, setExternalReviewVersion] = useState(0);
-  const externalWorkspaceRef = useRef<StagedWorkspace | null>(null);
+  const [externalApplied, setExternalApplied] = useState<{ action: AppliedAiAction; summary: string; count: number } | null>(null);
+  const applyAiWorkspaceRef = useRef<((workspace: StagedWorkspace) => WorkspaceApplyResult) | null>(null);
   const lastCompileRef = useRef<BridgeCompileOutcome | null>(null);
   const [showGithub, setShowGithub] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -257,6 +273,24 @@ export default function App() {
     setLeftPct(27);
     setRightPct(36);
   }
+
+  function showMobileView(view: 'chat' | 'editor' | 'preview') {
+    if (view === 'chat' && !sidebarTab) setSidebarTab('files');
+    if (view === 'chat') setHidden((h) => ({ ...h, left: false }));
+    applyPreset(view);
+  }
+
+  function openToolPanel(tab: 'files' | 'ai' | 'outline') {
+    const opening = sidebarTab !== tab;
+    toggleSidebar(tab);
+    if (opening) {
+      if (window.matchMedia('(max-width: 920px)').matches) applyPreset('chat');
+      else setHidden((h) => ({ ...h, left: false }));
+    } else if (mobileView === 'chat') {
+      setMaximized('center');
+      setMobileView('editor');
+    }
+  }
   const [selection, setSelection] = useState<SelectionCtx | null>(null);
   const [servers, setServersState] = useState<ExternalMcpServer[]>(() => loadServers());
   const [newName, setNewName] = useState('');
@@ -301,14 +335,11 @@ export default function App() {
   const liveRef = useRef(live);
   liveRef.current = live;
 
-  const publishExternalWorkspace = useCallback((next: StagedWorkspace | null) => {
-    const normalized = next && next.changes.length > 0 ? next : null;
-    externalWorkspaceRef.current = normalized;
-    setExternalWorkspace(normalized);
-    if (!normalized) {
-      setExternalReviewDraft(null);
-      setExternalReviewOpen(false);
-    }
+  const linkCloudProject = useCallback((nextProjectId: string) => {
+    if (!nextProjectId) return;
+    try { localStorage.setItem(LS_CLOUD_PROJECT, nextProjectId); } catch { /* storage disabled */ }
+    setCloudProjectId(nextProjectId);
+    setCloudLinkEpoch((epoch) => epoch + 1);
   }, []);
 
   const active = files.find((f) => f.id === activeId) ?? files[0];
@@ -350,26 +381,31 @@ export default function App() {
         return { ok: false, message: `Dexter Write could not find ${requested}.` };
       }
       try {
-        const workspace = externalWorkspaceRef.current ?? createWorkspace();
         const result = kind === 'edit'
-          ? stageExternalStringEdit(workspace, target, args)
-          : stageExternalInsertion(workspace, target, args);
+          ? stageExternalStringEdit(createWorkspace(), target, args)
+          : stageExternalInsertion(createWorkspace(), target, args);
         if (!result.ok) return { ok: false, message: result.message };
-        publishExternalWorkspace(result.workspace);
-        setExternalReviewDraft(null);
-        setExternalReviewVersion((version) => version + 1);
-        setExternalReviewOpen(true);
-        toast(`External agent staged ${result.name}. Nothing has been applied yet.`, 'info', 4500);
+        const apply = applyAiWorkspaceRef.current;
+        if (!apply) return { ok: false, message: 'Dexter Write is not ready to apply changes yet.' };
+        const applied = apply(result.workspace);
+        if (!applied.ok) {
+          return {
+            ok: false,
+            message: `Dexter Write could not apply that change because ${describeConflicts(applied.conflicts)}.`,
+          };
+        }
+        setExternalApplied({ action: applied.action, summary: applied.action.summary, count: result.files });
+        toast(`MCP applied ${result.name}. Undo is available.`, 'success', 5000);
         return {
           ok: true,
-          message: result.message,
+          message: `Applied ${result.name} immediately. Undo is available in Dexter Write.`,
           files: result.files,
           file: result.name,
         };
       } catch (error) {
         return {
           ok: false,
-          message: `Dexter Write could not stage that change: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Dexter Write could not apply that change: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     };
@@ -487,7 +523,7 @@ export default function App() {
     const client = new McpBridgeClient({ onStatus: setMcpBridgeStatus });
     client.start(access);
     return () => client.stop();
-  }, [mcpBridgeEnabled, publishExternalWorkspace]);
+  }, [mcpBridgeEnabled]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -498,11 +534,15 @@ export default function App() {
     localStorage.setItem('dexter-write:citations', JSON.stringify(citations));
   }, [citations]);
 
+  const lastSnapRef = useRef<Record<string, string>>({});
   useEffect(() => {
     const timer = setInterval(() => {
       const cur = filesRef.current.find((f) => f.id === activeIdRef.current);
       if (cur && cur.content.trim()) {
-        saveSnapshot(cur.id, cur.name, cur.content, 'Auto periodic checkpoint').catch(() => {});
+        if (lastSnapRef.current[cur.id] === cur.content) return;
+        saveSnapshot(cur.id, cur.name, cur.content, 'Auto periodic checkpoint')
+          .then(() => { lastSnapRef.current[cur.id] = cur.content; })
+          .catch(() => {});
       }
     }, 4 * 60 * 1000);
     return () => clearInterval(timer);
@@ -724,6 +764,11 @@ export default function App() {
       }
     }
 
+    filesRef.current = [...current, ...created].map((file) => {
+      const content = updates.get(file.id);
+      return content === undefined ? file : { ...file, content, updatedAt: now };
+    });
+
     const action: AppliedAiAction = {
       id: newAiActionId(),
       createdAt: now,
@@ -732,43 +777,148 @@ export default function App() {
       previousActiveId: activeIdRef.current,
     };
     const nextActive = workspace.activeName && [...current, ...created].find((file) => file.name === workspace.activeName);
-    if (nextActive) setActiveId(nextActive.id);
+    if (nextActive) {
+      activeIdRef.current = nextActive.id;
+      setActiveId(nextActive.id);
+    }
     undoVersionRef.current++;
     setUndoAction(action);
     void persistAiAction(projectId, action).catch((e) => toast(`AI changes applied, but Undo could not be saved for reload: ${String(e)}. Undo is still available in this session.`, 'error', 7000));
     return { ok: true, action };
   }, [setDocContent, projectId]);
+  applyAiWorkspaceRef.current = applyAiWorkspace;
 
-  const externalConflicts = useMemo(
-    () => (externalWorkspace ? findWorkspaceConflicts(externalWorkspace, files) : []),
-    [externalWorkspace, files],
-  );
+  useEffect(() => {
+    if (!cloudConfigured || !cloudProjectId || cloudLinkEpoch === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const metas = await listCloudFileMeta(cloudProjectId);
+        if (cancelled) return;
+        const baseline = makeBaseline(metas, filesRef.current);
+        cloudBaselineRef.current = baseline;
+        saveCloudBaseline(cloudProjectId, baseline);
+      } catch {
+        /* signed out or offline: the next explicit load can relink */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cloudProjectId, cloudLinkEpoch]);
 
-  const applyExternalWorkspace = useCallback((resolved: StagedWorkspace): WorkspaceApplyResult => {
-    const result = applyAiWorkspace(resolved);
-    if (!result.ok) return result;
-    const summary = workspaceSummary(resolved);
-    publishExternalWorkspace(null);
-    setExternalReviewVersion((version) => version + 1);
-    toast(`Applied external agent changes (${summary}). Undo is available.`, 'success', 4000);
-    return result;
-  }, [applyAiWorkspace, publishExternalWorkspace]);
+  useEffect(() => {
+    if (!cloudConfigured || !cloudProjectId) return;
+    let cancelled = false;
+    let running = false;
 
-  const discardExternalWorkspace = useCallback(() => {
-    const count = externalWorkspaceRef.current?.changes.length ?? 0;
-    publishExternalWorkspace(null);
-    setExternalReviewVersion((version) => version + 1);
-    toast(`Discarded ${count} staged external file${count === 1 ? '' : 's'}.`, 'info', 3200);
-  }, [publishExternalWorkspace]);
+    const tick = async () => {
+      const session = liveRef.current;
+      if (cancelled || running || document.hidden || session) return;
+      if (Object.keys(cloudBaselineRef.current).length === 0) return;
+      running = true;
+      try {
+        const metas = await listCloudFileMeta(cloudProjectId);
+        if (cancelled) return;
+        const baseline = cloudBaselineRef.current;
+        const rows = changedFiles(metas, baseline);
+        if (rows.length === 0) return;
+        const changedRows = await fetchCloudFiles(cloudProjectId, rows.map((row) => row.path));
+        if (cancelled) return;
 
-  const closeExternalReview = useCallback((draft?: WorkspaceReviewDraft) => {
-    setExternalReviewDraft(draft ?? null);
-    setExternalReviewOpen(false);
-  }, []);
+        const updates = new Map<string, string>();
+        const created: ProjectFile[] = [];
+        const conflicts: string[] = [];
+        const nextBaseline = { ...baseline };
+        const now = Date.now();
 
-  const undoLastAiAction = useCallback(() => {
-    const action = undoAction;
-    if (!action) return;
+        for (const row of changedRows) {
+          const local = filesRef.current.find((file) => file.name === row.path);
+          const known = baseline[row.path];
+          if (local && known && !matchesBaseline(local.content, known)) {
+            conflicts.push(row.path);
+            nextBaseline[row.path] = { version: row.version, hash: contentHash(row.content) };
+            continue;
+          }
+          if (!local) {
+            created.push({
+              id: row.id,
+              name: row.path,
+              mode: modeForName(row.path),
+              content: row.content,
+              updatedAt: Date.parse(row.updated_at) || now,
+            });
+            nextBaseline[row.path] = { version: row.version, hash: contentHash(row.content) };
+            continue;
+          }
+          if (local.content === row.content) {
+            nextBaseline[row.path] = { version: row.version, hash: contentHash(row.content) };
+            continue;
+          }
+          saveSnapshot(local.id, local.name, local.content, 'Before cloud MCP edit').catch(() => {});
+          updates.set(local.id, row.content);
+          nextBaseline[row.path] = { version: row.version, hash: contentHash(row.content) };
+        }
+
+        const changedNames = changedRows.map((row) => row.path);
+        if (created.length > 0) {
+          setFiles((prev) => [...prev, ...created]);
+          filesRef.current = [...filesRef.current, ...created];
+          for (const file of created) {
+            liveRef.current?.addFile(file);
+            if (file.mode === 'typst') warmupTypstEngine();
+          }
+        }
+        if (updates.size > 0) {
+          const activeId = activeIdRef.current;
+          setFiles((prev) => prev.map((file) => {
+            const content = updates.get(file.id);
+            return content === undefined ? file : { ...file, content, updatedAt: now };
+          }));
+          filesRef.current = filesRef.current.map((file) => {
+            const content = updates.get(file.id);
+            return content === undefined ? file : { ...file, content, updatedAt: now };
+          });
+          for (const [id, content] of updates) {
+            liveRef.current?.setContent(id, content);
+            if (id === activeId) setDocContent(content);
+          }
+        }
+        if (created.length > 0 || updates.size > 0) {
+          toast(
+            `MCP applied cloud edits to ${changedNames.slice(0, 3).join(', ')}${changedNames.length > 3 ? ` +${changedNames.length - 3} more` : ''}. Undo is in Cloud → Recent MCP edits.`,
+            'success',
+            6500,
+          );
+        }
+        if (conflicts.length > 0) {
+          toast(
+            `Cloud MCP changed ${conflicts.slice(0, 3).join(', ')}${conflicts.length > 3 ? ` +${conflicts.length - 3} more` : ''}. Local edits were kept; load from Cloud or push local to resolve.`,
+            'info',
+            7500,
+          );
+        }
+        if (created.length > 0 || updates.size > 0 || conflicts.length > 0) {
+          cloudBaselineRef.current = nextBaseline;
+          saveCloudBaseline(cloudProjectId, nextBaseline);
+        }
+      } catch {
+        /* offline, signed out, or cloud disabled: local editing continues */
+      } finally {
+        running = false;
+      }
+    };
+
+    const timer = window.setInterval(() => { void tick(); }, 7000);
+    const onVisible = () => { if (!document.hidden) void tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    void tick();
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [cloudProjectId, setDocContent]);
+
+  const undoAppliedAction = useCallback((action: AppliedAiAction) => {
     const current = filesRef.current;
     const conflicts = findUndoConflicts(action, current);
     if (conflicts.length > 0) {
@@ -802,6 +952,12 @@ export default function App() {
       }
       return next;
     });
+    filesRef.current = filesRef.current
+      .filter((file) => !removals.has(file.id))
+      .map((file) => {
+        const content = updates.get(file.id);
+        return content === undefined ? file : { ...file, content, updatedAt: now };
+      });
     for (const [id, content] of updates) {
       sess?.setContent(id, content);
       if (id === activeId) setDocContent(content);
@@ -816,10 +972,15 @@ export default function App() {
 
     undoVersionRef.current++;
     setUndoAction(null);
+    setExternalApplied(null);
     clearUndoAction();
     void removeAiAction(projectId).catch((e) => toast(`Undo history cleanup failed: ${String(e)}`, 'error'));
     toast(`Undid ${action.summary}.`, 'success', 3500);
-  }, [undoAction, setDocContent, projectId]);
+  }, [setDocContent, projectId]);
+
+  const undoLastAiAction = useCallback(() => {
+    if (undoAction) undoAppliedAction(undoAction);
+  }, [undoAction, undoAppliedAction]);
 
   const setAiCompleteEnabled = useCallback((next: boolean, note?: string) => {
     setAiComplete(next);
@@ -958,12 +1119,16 @@ export default function App() {
     for (const asset of prepared) { await storeAsset(asset); assetNext.push(asset); setAssets([...assetNext]); }
     if (replace) {
       for (const file of filesRef.current) { await saveSnapshot(file.id, file.name, file.content, 'Before project restore'); liveRef.current?.removeFile(file.id); }
-      if (externalWorkspaceRef.current) publishExternalWorkspace(null);
+      setExternalApplied(null);
+      if (cloudProjectId) clearCloudBaseline(cloudProjectId);
+      cloudBaselineRef.current = {};
+      setCloudProjectId('');
+      try { localStorage.removeItem(LS_CLOUD_PROJECT); } catch { /* storage disabled */ }
       clearUndoAction(); await removeAiAction(projectId); undoVersionRef.current++; setUndoAction(null);
     }
     const final = [...current, ...imported];
     if (!final.length) final.push(newProjectFile('main.md', 'markdown', ''));
-    setFiles(final); for (const file of imported) liveRef.current?.addFile(file);
+    setFiles(final); filesRef.current = final; for (const file of imported) liveRef.current?.addFile(file);
     const main = incoming.activeName && paths.get(incoming.activeName);
     setActiveId(final.find((f) => f.name === main)?.id || imported[0]?.id || final[0].id);
     toast(`Imported ${imported.length} documents and ${prepared.length} images.`, 'success');
@@ -976,11 +1141,14 @@ export default function App() {
     }
     for (const asset of assetsRef.current) await removeAsset(asset.id);
     for (const asset of cloudAssets) await storeAsset(asset);
-    publishExternalWorkspace(null);
     setAssets(cloudAssets);
     setSharedAssetIds([]);
     setFiles(cloudFiles);
-    setActiveId(cloudFiles.find((file) => file.name === cloudActiveName)?.id ?? cloudFiles[0]?.id ?? '');
+    filesRef.current = cloudFiles;
+    const nextActiveId = cloudFiles.find((file) => file.name === cloudActiveName)?.id ?? cloudFiles[0]?.id ?? '';
+    setActiveId(nextActiveId);
+    activeIdRef.current = nextActiveId;
+    setExternalApplied(null);
     undoVersionRef.current++;
     setUndoAction(null);
     clearUndoAction();
@@ -999,18 +1167,34 @@ export default function App() {
     } else { report.unshift('Reference and syntax checks complete.'); setValidationStatus(issues.length ? 'Needs review' : 'Validated'); }
     return report;
   }
-  function runExport(kind: ExportKind) {
+  async function runExport(kind: ExportKind) {
     const issues = validateProject(filesRef.current, assets.map((a) => a.path));
-    if (kind !== 'zip' && issues.length && !window.confirm(`This is a draft with ${issues.length} validation warning(s). Export anyway?\n${issues.slice(0, 3).map((i) => i.message).join('\n')}`)) return;
+    if (kind !== 'zip' && issues.length) {
+      const proceed = await askConfirm({
+        title: 'Export draft?',
+        message: `This project has ${issues.length} validation warning(s).\n\n${issues.slice(0, 3).map((i) => i.message).join('\n')}`,
+        confirmLabel: 'Export anyway',
+        cancelLabel: 'Keep editing',
+      });
+      if (!proceed) return;
+    }
     const task = kind === 'zip' ? exportProjectZip(filesRef.current, runtime) : doExport(kind, docContent, docMode, active?.name, runtime);
     void Promise.resolve(task).catch((e) => toast(`Export failed: ${String(e)}`, 'error', 7000));
   }
 
-  const applyTemplateToActive = useCallback((id: string) => {
+  const applyTemplateToActive = useCallback(async (id: string) => {
     const t = getTemplate(id);
     const aid = activeIdRef.current;
     const prior = filesRef.current.find((f) => f.id === aid);
-    if (prior?.content && !window.confirm('Replace the current document with template sample content? Use Project / Import to create a new document instead.')) return;
+    if (prior?.content) {
+      const proceed = await askConfirm({
+        title: 'Replace document content?',
+        message: 'The current document will be replaced with template sample content. Use Project / Import if you want to create a separate document instead.',
+        confirmLabel: 'Replace content',
+        danger: true,
+      });
+      if (!proceed) return;
+    }
     if (prior) saveSnapshot(prior.id, prior.name, prior.content, 'Before template replacement').catch(() => {});
     const sess = liveRef.current;
     setFiles((prev) => prev.map((f) => {
@@ -1060,14 +1244,29 @@ export default function App() {
     if (mode === 'typst') warmupTypstEngine();
   }
 
-  function renameDocument(id: string) {
+  async function renameDocument(id: string) {
     const original = filesRef.current.find((file) => file.id === id); if (!original) return;
-    const requested = window.prompt('New project path (folders are allowed):', original.name); if (requested === null || requested === original.name) return;
+    const requested = await askPrompt({
+      title: 'Rename or move file',
+      message: 'Folders are allowed in the project path.',
+      inputLabel: 'Project path',
+      defaultValue: original.name,
+      confirmLabel: 'Rename',
+    });
+    if (requested === null || requested === original.name) return;
     try {
       const name = projectPath(requested);
       if (filesRef.current.some((f) => f.id !== id && f.name === name) || assets.some((a) => a.path === name)) throw new Error('That project path already exists.');
       const mode = modeForName(name);
-      if (mode !== original.mode && !window.confirm('Changing the extension changes the document format without converting its source. Continue?')) return;
+      if (mode !== original.mode) {
+        const proceed = await askConfirm({
+          title: 'Change document format?',
+          message: 'Changing the extension changes the document format without converting its source.',
+          confirmLabel: 'Continue',
+          cancelLabel: 'Keep current extension',
+        });
+        if (!proceed) return;
+      }
       const next = filesRef.current.map((file) => {
         const targetName = file.id === id ? name : file.name;
         let content = file.content;
@@ -1288,7 +1487,7 @@ export default function App() {
       { id: 'open-gh', group: 'Open', label: 'GitHub sync', icon: 'github', run: () => setShowGithub(true) },
       { id: 'open-history', group: 'Open', label: 'Version history', icon: 'history', run: () => setShowHistory(true) },
       { id: 'open-cite', group: 'Open', label: 'Citation manager', icon: 'book', run: () => setShowCitations(true) },
-      { id: 'open-review', group: 'Open', label: 'Autonomous Document Review Agent', icon: 'sparkles', run: () => setShowReview(true) },
+      { id: 'open-review', group: 'Open', label: 'Autonomous Document Review Agent', icon: 'fileText', run: () => setShowReview(true) },
       { id: 'open-keys2', group: 'Open', label: 'Keyboard shortcuts', icon: 'keyboard', run: () => setShowShortcuts(true) },
     );
     const ex: Array<{ kind: ExportKind; label: string }> = [
@@ -1314,7 +1513,7 @@ export default function App() {
       acts.push({ id: 'invite', group: 'Live', label: 'Copy invite link', icon: 'link', run: copyInvite });
       acts.push({ id: 'leave', group: 'Live', label: `Leave room ${live.room}`, icon: 'logout', run: leaveLive });
     } else {
-      acts.push({ id: 'golive', group: 'Live', label: 'Start live collaboration…', icon: 'sparkles', run: () => { setLiveError(null); setShowLive(true); } });
+      acts.push({ id: 'golive', group: 'Live', label: 'Start live collaboration…', icon: 'plug', run: () => { setLiveError(null); setShowLive(true); } });
     }
     return acts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1360,6 +1559,11 @@ export default function App() {
             Preview
           </button>
         </div>
+        <div className="seg view-switch" role="group" aria-label="Mobile view">
+          <button className={mobileView === 'editor' ? 'active' : ''} onClick={() => showMobileView('editor')} title="Editor">Editor</button>
+          <button className={mobileView === 'preview' ? 'active' : ''} onClick={() => showMobileView('preview')} title="Preview">Preview</button>
+          <button className={mobileView === 'chat' ? 'active' : ''} onClick={() => showMobileView('chat')} title="Project panel">Panel</button>
+        </div>
         {!isVisible('right') && (
           <button className="btn xs btn-recompile" onClick={triggerRecompile} title="Recompile document (Ctrl+Enter)">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
@@ -1372,17 +1576,6 @@ export default function App() {
         <div className="tb-group">
           <select
             className="tb-select"
-            value={docMode}
-            onChange={(e) => switchMode(e.target.value as DocMode)}
-            aria-label="Document format"
-            title="Document format / extension"
-          >
-            <option value="latex">LaTeX (.tex)</option>
-            <option value="typst">Typst (.typ)</option>
-            <option value="markdown">Markdown (.md)</option>
-          </select>
-          <select
-            className="tb-select"
             aria-label="Export"
             defaultValue=""
             onChange={(e) => {
@@ -1392,7 +1585,7 @@ export default function App() {
               runExport(v);
             }}
           >
-            <option value="" disabled>Export ▾</option>
+            <option value="" disabled>Export</option>
             <option value="pdf">PDF</option>
             <option value="typst-pdf" disabled={docMode !== 'typst'}>Typst PDF (vector)</option>
             <option value="tex" disabled={docMode !== 'latex'}>LaTeX .tex</option>
@@ -1415,20 +1608,20 @@ export default function App() {
               </button>
             </>
           ) : (
-            <button className="btn xs ghost icon-btn" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration">
-              <Icon name="sparkles" size={14} />
+            <button className="btn xs ghost icon-btn tb-live" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration" aria-label="Start live collaboration">
+              <Icon name="plug" size={14} />
             </button>
           )}
           {undoAction && (
             <button
-              className="btn xs"
+              className="btn xs tb-undo"
               onClick={undoLastAiAction}
               title={`Undo last AI action: ${undoAction.summary}`}
             >
               <Icon name="undo" size={14} /><span className="btn-label optional">Undo AI</span>
             </button>
           )}
-          <button className="btn xs icon-btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
+          <button className="btn xs icon-btn tb-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
           </button>
           <button className="btn xs" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">
@@ -1444,7 +1637,7 @@ export default function App() {
           <button className="act-btn" onClick={() => setShowAssets(true)} title="Images and attachments" aria-label="Images and attachments"><Icon name="image" size={17} /></button>
           <button
             className={`act-btn ${sidebarTab === 'files' ? 'active' : ''}`}
-            onClick={() => toggleSidebar('files')}
+            onClick={() => openToolPanel('files')}
             title="Project Files"
             aria-label="Project Files"
           >
@@ -1452,7 +1645,7 @@ export default function App() {
           </button>
           <button
             className={`act-btn ${sidebarTab === 'ai' ? 'active' : ''}`}
-            onClick={() => toggleSidebar('ai')}
+            onClick={() => openToolPanel('ai')}
             title="AI Assistant"
             aria-label="AI Assistant"
           >
@@ -1460,7 +1653,7 @@ export default function App() {
           </button>
           <button
             className={`act-btn ${sidebarTab === 'outline' ? 'active' : ''}`}
-            onClick={() => toggleSidebar('outline')}
+            onClick={() => openToolPanel('outline')}
             title="Document Outline"
             aria-label="Document Outline"
           >
@@ -1475,7 +1668,7 @@ export default function App() {
             title="Autonomous Document Review Agent"
             aria-label="Document Review"
           >
-            <Icon name="sparkles" size={16} />
+            <Icon name="fileText" size={16} />
           </button>
           <button
             className="act-btn"
@@ -1541,7 +1734,7 @@ export default function App() {
                   </span>
                 </div>
                 <div className="filetree-content" style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
-                  <ProjectFileTree files={files} activeId={activeId} onSelect={setActiveId} onRename={renameDocument} onDelete={(id) => { const file = filesRef.current.find((f) => f.id === id); if (file && window.confirm(`Delete ${file.name}? Download a backup first if you need it.`)) removeFile(id); }} />
+                  <ProjectFileTree files={files} activeId={activeId} onSelect={setActiveId} onRename={renameDocument} onDelete={(id) => { const file = filesRef.current.find((f) => f.id === id); if (!file) return; void askConfirm({ title: `Delete ${file.name}?`, message: 'This removes the file from the project. Download a backup first if you need it.', confirmLabel: 'Delete file', danger: true }).then((ok) => { if (ok) removeFile(id); }); }} />
                 </div>
                 <div className="file-add">
                   <input
@@ -1637,7 +1830,7 @@ export default function App() {
             <div className="pane-head">
               <span className="pane-title">Editor</span>
               <span className="pane-actions">
-                <span className="muted small hide-sm">{docMode} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
+                <span className="muted small hide-sm">{docMode === 'markdown' ? 'Markdown' : docMode === 'latex' ? 'LaTeX' : 'Typst'} · {docContent.split('\n').length} lines{live ? ` · ${live.room}` : ''}</span>
                 <button className="btn xs ghost icon-btn" onClick={() => toggleMax('center')} title={maximized === 'center' ? 'Restore split view' : 'Maximize editor'}>
                   <Icon name={maximized === 'center' ? 'minimize' : 'expand'} size={13} />
                 </button>
@@ -1646,19 +1839,23 @@ export default function App() {
             <div className="filebar">
               <div className="tabs">
                 {files.map((f) => (
-                  <button key={f.id} className={`tab ${f.id === activeId ? 'active' : ''}`} onClick={() => setActiveId(f.id)} title={f.name}>
-                    <Icon name="fileText" size={12} className="ficon" />
-                    <span className="tab-name">{f.name}</span>
+                  <div key={f.id} className={`tab ${f.id === activeId ? 'active' : ''}`} title={f.name}>
+                    <button type="button" className="tab-main" onClick={() => setActiveId(f.id)}>
+                      <Icon name="fileText" size={12} className="ficon" />
+                      <span className="tab-name">{f.name}</span>
+                    </button>
                     {files.length > 1 && (
-                      <span
+                      <button
+                        type="button"
                         className="tab-close"
-                        onClick={(e) => { e.stopPropagation(); removeFile(f.id); }}
+                        onClick={() => removeFile(f.id)}
                         title={`Close ${f.name}`}
+                        aria-label={`Close ${f.name}`}
                       >
                         ×
-                      </span>
+                      </button>
                     )}
-                  </button>
+                  </div>
                 ))}
               </div>
               <button
@@ -1673,6 +1870,7 @@ export default function App() {
                   toast(`Created ${name}`, 'success', 2000);
                 }}
                 title="New file"
+                aria-label="New file"
               >
                 <Icon name="plus" size={13} />
               </button>
@@ -1728,16 +1926,17 @@ export default function App() {
 
       <footer className="statusbar">
         <span className="stat" title={active?.name}>{active?.name}</span>
-        <button className="stat btn xs ghost" onClick={() => setShowHub(true)}>Project / Import</button><span className="stat">{validationStatus}</span><span className="stat">{stats.words} words</span>
-        <span className="stat hide-mobile">{stats.chars} chars</span>
-        <span className="stat hide-mobile">{stats.lines} lines</span>
-        <span className="stat hide-mobile">~{stats.readingTimeMin} min</span>
-        <span className="stat hide-mobile" title="Autosaved to browser storage">
+        <button className="stat stat-btn status-project" onClick={() => setShowHub(true)} title="Create, import, templates and backup">
+          <Icon name="plus" size={11} /> Project
+        </button>
+        <span className="stat status-validation">{validationStatus}</span>
+        <span className="stat status-words" title={`${stats.chars} characters · ${stats.lines} lines · ~${stats.readingTimeMin} min read`}>{stats.words} words</span>
+        <span className={`stat status-save${saveState === 'error' ? ' danger-text' : ''}`} title="Autosaved to browser storage" aria-live="polite">
           <Icon name={saveState === 'error' ? 'x' : 'check'} size={11} /> {saveState === 'error' ? `Save failed: ${saveError}` : saveState === 'saving' ? 'Saving…' : 'Saved'}{saveState === 'saved' && lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
         </span>
         <span className="spacer" />
         <button
-          className={`stat stat-btn${aiComplete ? ' on' : ''}`}
+          className={`stat stat-btn status-ai${aiComplete ? ' on' : ''}`}
           onClick={() => setAiCompleteEnabled(
             !aiComplete,
             aiComplete ? 'AI completion off' : 'AI completion on — pause while typing, then Tab to accept',
@@ -1762,7 +1961,7 @@ export default function App() {
           </span>
         )}
         <button
-          className={`stat stat-btn${mcpBridgeStatus === 'live' ? ' on' : ''}`}
+          className={`stat stat-btn status-bridge${mcpBridgeStatus === 'live' ? ' on' : ''}`}
           onClick={() => setMcpBridgeEnabled((value) => !value)}
           title={!mcpBridgeEnabled
             ? 'Local MCP bridge is off — click to let Claude Desktop or Cursor read this project'
@@ -1779,8 +1978,8 @@ export default function App() {
         <span className="stat hide-mobile">{files.length} files</span>
         {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
         <span className="stat hide-mobile">{resolveProvider(provider).label}:{model}</span>
-        <span className="stat">{apiKey ? 'Key saved' : !resolveProvider(provider).needsKey ? 'Local mode' : 'No key'}</span>
-        <span className="stat" title={online ? 'Online' : 'Offline — local mode'}>
+        <span className="stat status-key">{apiKey ? 'Key saved' : !resolveProvider(provider).needsKey ? 'Local mode' : 'No key'}</span>
+        <span className="stat status-online" title={online ? 'Online' : 'Offline — local mode'}>
           <span className={`offline-dot${online ? '' : ' off'}`} />
           {online ? 'Online' : 'Offline'}
         </span>
@@ -1834,6 +2033,7 @@ export default function App() {
           activeName={active?.name ?? ''}
           localProjectId={projectId}
           onLoad={applyCloudProject}
+          onLink={linkCloudProject}
           onClose={() => setShowCloud(false)}
         />
       )}
@@ -1914,26 +2114,16 @@ export default function App() {
       )}
       {showAssets && <AssetLibraryModal onClose={() => setShowAssets(false)} onUpload={uploadImages} onInsert={insertImage} onRename={renameImage} onDelete={async (asset) => { await removeAsset(asset.id); setAssets((prev) => prev.filter((a) => a.id !== asset.id)); setSharedAssetIds((prev) => prev.filter((id) => id !== asset.id)); }} shared={sharedAssetIds} onShare={setSharedAssetIds} />}
       {showHub && <ProjectHubModal onClose={closeHub} onCreate={createDocument} onImport={importReviewed} onAI={() => { closeHub(); setSidebarTab('ai'); }} onAssets={() => { closeHub(); setShowAssets(true); }} onBackup={() => runExport('zip')} onValidate={validateCurrentProject} />}
-      {externalWorkspace && !externalReviewOpen && (
+      {externalApplied && (
         <ExternalAgentBanner
-          workspace={externalWorkspace}
-          onReview={() => setExternalReviewOpen(true)}
-          onDiscard={discardExternalWorkspace}
-        />
-      )}
-      {externalWorkspace && externalReviewOpen && (
-        <WorkspaceReviewModal
-          key={`${externalWorkspace.id}:${externalReviewVersion}`}
-          workspace={externalWorkspace}
-          theme={theme}
-          conflicts={externalConflicts}
-          initialDraft={externalReviewDraft}
-          onApply={applyExternalWorkspace}
-          onClose={closeExternalReview}
-          onDiscard={discardExternalWorkspace}
+          count={externalApplied.count}
+          summary={externalApplied.summary}
+          onUndo={() => undoAppliedAction(externalApplied.action)}
+          onDismiss={() => setExternalApplied(null)}
         />
       )}
       <Toasts />
+      <DialogHost />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={paletteActions} />
     </div></ProjectContext.Provider>
   );

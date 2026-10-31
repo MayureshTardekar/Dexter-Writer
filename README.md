@@ -1,4 +1,4 @@
-# ⚡ Dexter Write
+5# ⚡ Dexter Write
 
 > **The Open-Source, BYOK & MCP-Native Collaborative Document & Resume Platform**  
 > *An Overleaf alternative designed for the AI era: Bring Your Own Key, connect any MCP server, and let AI directly assist, typeset, and write across Markdown and LaTeX.*

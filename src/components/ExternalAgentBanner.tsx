@@ -1,27 +1,25 @@
-import type { StagedWorkspace } from '../lib/aiWorkspace';
 import Icon from './icons';
 
 interface Props {
-  workspace: StagedWorkspace;
-  onReview: () => void;
-  onDiscard: () => void;
+  count: number;
+  summary: string;
+  onUndo: () => void;
+  onDismiss: () => void;
 }
 
-export default function ExternalAgentBanner({ workspace, onReview, onDiscard }: Props) {
-  const count = workspace.changes.length;
-  const names = workspace.changes.map((change) => change.name).join(', ');
+export default function ExternalAgentBanner({ count, summary, onUndo, onDismiss }: Props) {
   return (
     <div className="external-agent-banner" role="status" aria-live="polite">
-      <span className="external-agent-icon"><Icon name="plug" size={15} /></span>
+      <span className="external-agent-icon"><Icon name="check" size={15} /></span>
       <div className="external-agent-copy">
-        <strong>External agent staged {count} file{count === 1 ? '' : 's'}</strong>
-        <span>{names} — nothing applied yet.</span>
+        <strong>MCP applied {count} file{count === 1 ? '' : 's'}</strong>
+        <span>{summary} — undo is available.</span>
       </div>
-      <button className="btn xs primary" onClick={onReview}>
-        <Icon name="fileText" size={12} /> Review
+      <button className="btn xs" onClick={onUndo}>
+        <Icon name="undo" size={12} /> Undo
       </button>
-      <button className="btn xs ghost" onClick={onDiscard} title="Discard staged external changes">
-        <Icon name="trash" size={12} /> Discard
+      <button className="btn xs ghost" onClick={onDismiss} title="Dismiss applied changes notice" aria-label="Dismiss applied changes notice">
+        <Icon name="x" size={12} />
       </button>
     </div>
   );
