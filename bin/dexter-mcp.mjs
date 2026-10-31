@@ -17,7 +17,7 @@ const COMPILE_TIMEOUT_MS = 90_000;
 const MAX_BODY_BYTES = 1_000_000;
 const LATEST_LEGACY_PROTOCOL = '2025-11-25';
 const SUPPORTED_PROTOCOLS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', LATEST_LEGACY_PROTOCOL]);
-const SERVER_INSTRUCTIONS = 'Dexter Write bridge for the user\'s open local project. Read first with dexter_list_project_files, dexter_read_active_document, or dexter_read_project_file. Make changes only with dexter_stage_edit or dexter_insert_content; these stage a review and never apply it. Tell the user to accept the review in Dexter Write. Verify with dexter_compile_document and dexter_get_diagnostics. Never claim a change was applied or a build passed without tool evidence. Keep Dexter Write open with the bridge enabled.';
+const SERVER_INSTRUCTIONS = 'Dexter Write bridge for the user\'s open local project. Read first with dexter_list_project_files, dexter_read_active_document, or dexter_read_project_file. Change files with dexter_stage_edit or dexter_insert_content; these apply immediately and keep an undo snapshot in Dexter Write. Verify with dexter_compile_document and dexter_get_diagnostics. Never claim a change was applied or a build passed without tool evidence. Keep Dexter Write open with the bridge enabled.';
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -76,7 +76,7 @@ const TOOLS = [
   },
   {
     name: 'dexter_stage_edit',
-    description: 'Use this when changing existing text in a project file. Stage an exact-string edit for review in Dexter Write. This never writes directly; old_string must occur exactly once unless replace_all is true.',
+    description: 'Use this when changing existing text in a project file. Applies an exact-string edit immediately in Dexter Write and keeps an undo snapshot. old_string must occur exactly once unless replace_all is true.',
     annotations: STAGED_WRITE_ANNOTATIONS,
     inputSchema: {
       type: 'object',
@@ -86,7 +86,7 @@ const TOOLS = [
         filename: { type: 'string', description: 'Target file name. Defaults to the active file.' },
         file_id: { type: 'string', description: 'Target file id. Takes precedence over filename.' },
         replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring a unique match.' },
-        explanation: { type: 'string', description: 'Short label shown in the Dexter Write review.' },
+        explanation: { type: 'string', description: 'Short label shown in the Dexter Write undo history.' },
       },
       required: ['old_string', 'new_string'],
       additionalProperties: false,
@@ -94,7 +94,7 @@ const TOOLS = [
   },
   {
     name: 'dexter_insert_content',
-    description: 'Use this when adding new text to a project file. Stage inserted text before or after a specific line for review. Nothing is applied until the user accepts it.',
+    description: 'Use this when adding new text to a project file. Inserts text before or after a specific line immediately and keeps an undo snapshot.',
     annotations: STAGED_WRITE_ANNOTATIONS,
     inputSchema: {
       type: 'object',
@@ -104,7 +104,7 @@ const TOOLS = [
         content: { type: 'string', description: 'Text to insert. May contain newlines.' },
         filename: { type: 'string', description: 'Target file name. Defaults to the active file.' },
         file_id: { type: 'string', description: 'Target file id. Takes precedence over filename.' },
-        explanation: { type: 'string', description: 'Short label shown in the Dexter Write review.' },
+        explanation: { type: 'string', description: 'Short label shown in the Dexter Write undo history.' },
       },
       required: ['target_line', 'content'],
       additionalProperties: false,
@@ -112,7 +112,7 @@ const TOOLS = [
   },
   {
     name: 'dexter_compile_document',
-    description: 'Use this after staging build-related edits to compile or validate a project file with the same engines as Dexter Write preview. Markdown is validated; LaTeX and Typst compile to PDF by default.',
+    description: 'Use this after edits to compile or validate a project file with the same engines as Dexter Write preview. Markdown is validated; LaTeX and Typst compile to PDF by default.',
     annotations: READ_ONLY_ANNOTATIONS,
     inputSchema: {
       type: 'object',
@@ -185,7 +185,7 @@ const PROMPTS = [
   },
   {
     name: 'fix-latex-errors',
-    description: 'Diagnose and stage fixes for LaTeX compile or validation errors.',
+    description: 'Diagnose and apply fixes for LaTeX compile or validation errors.',
     arguments: [
       { name: 'file', description: 'Optional target .tex file. Defaults to the active file.', required: false },
     ],
@@ -554,9 +554,9 @@ function promptResult(name, args) {
       'Audit the open Dexter Write project like a demanding but constructive academic reviewer.',
       `Focus: ${focus || 'overall structure, argument, evidence, citations, and build health'}.`,
       'Use dexter_list_project_files, dexter_read_project_file, dexter_get_outline, and dexter_get_diagnostics to inspect the real files.',
-      'Report prioritized issues with file and line references. Then stage concrete, minimal fixes with dexter_stage_edit or dexter_insert_content.',
-      'Call dexter_compile_document after staging build-related fixes and report any remaining warnings. Do not claim success without that call.',
-      'Nothing is applied until I review and accept the staged workspace in Dexter Write.',
+      'Report prioritized issues with file and line references. Then apply concrete, minimal fixes with dexter_stage_edit or dexter_insert_content.',
+      'Call dexter_compile_document after build-related fixes and report any remaining warnings. Do not claim success without that call.',
+      'Edits apply immediately and Undo remains available in Dexter Write.',
     ].join('\n');
   } else if (name === 'tailor-resume') {
     text = [
@@ -565,15 +565,15 @@ function promptResult(name, args) {
       job || '[No job description supplied. Ask me for the job description before editing.]',
       'Read the active resume and relevant project files first. Map existing evidence to the role, tighten wording, and reorder only what the evidence supports.',
       'Use dexter_stage_edit for precise edits. Explain every material change and list gaps I should address myself.',
-      'Nothing is applied until I review the staged workspace in Dexter Write.',
+      'Edits apply immediately and Undo remains available in Dexter Write.',
     ].join('\n');
   } else {
     text = [
       `Diagnose and fix build problems in ${file || 'the active LaTeX file'} in Dexter Write.`,
       'Call dexter_get_diagnostics first, then dexter_compile_document to reproduce the current failure.',
       'Read the failing file and referenced files. Identify the root cause before editing.',
-      'Stage minimal fixes with dexter_stage_edit, then compile again and report the remaining diagnostics.',
-      'Do not claim the build is fixed unless dexter_compile_document succeeds. Nothing is applied until I review the staged workspace.',
+      'Apply minimal fixes with dexter_stage_edit, then compile again and report the remaining diagnostics.',
+      'Do not claim the build is fixed unless dexter_compile_document succeeds. Edits apply immediately; Undo remains available.',
     ].join('\n');
   }
   return {
@@ -744,7 +744,7 @@ Setup (${isWindows ? 'PowerShell' : 'bash/zsh'}):
 Notes:
   - Do not run "npm run mcp" at the same time; tunnel-client starts the daemon.
   - The daemon still listens on 127.0.0.1:${DEFAULT_PORT} for the open Dexter Write tab.
-  - Reads are immediate. Edits and inserts are staged for review in Dexter Write and are never applied automatically.
+  - Reads are immediate. Edits and inserts apply directly in Dexter Write with a local undo snapshot.
   - Secure MCP Tunnel has a 120-second request deadline, so compile calls time out after ${COMPILE_TIMEOUT_MS / 1000} seconds here.
   - If ChatGPT does not list the tunnel, verify its ChatGPT workspace association and your Tunnels Read + Use permission.
 `;
@@ -765,10 +765,10 @@ Options:
   --reset-token              Delete the persisted pairing token first
 
 Capabilities:
-  tools (8)                  Read, stage edits/inserts, compile, diagnostics
+  tools (8)                  Read, apply edits/inserts, compile, diagnostics
   resources (4)              dexter://document/*, project/files, compiler/diagnostics
   prompts (3)                audit-academic-paper, tailor-resume, fix-latex-errors
-  Edits are staged for human review and are never applied automatically.
+  Edits apply directly and keep an undo snapshot in Dexter Write.
 
 Clients:
   Claude Desktop, Cursor     Local stdio MCP via --print-config
@@ -873,7 +873,7 @@ async function runSelfTest() {
   assert.ok(initialized.result.capabilities.resources);
   assert.ok(initialized.result.capabilities.prompts);
   assert.match(initialized.result.instructions, /dexter_stage_edit/);
-  assert.match(initialized.result.instructions, /never apply/i);
+  assert.match(initialized.result.instructions, /apply immediately/i);
 
   const legacy = await handleRpc(bridge, {
     jsonrpc: '2.0',

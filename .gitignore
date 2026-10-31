@@ -76,3 +76,8 @@ playwright-report/
 test-results/
 .vercel
 .env*.local
+# Internal prep & temporary docs
+INTERVIEW_PREP.md
+AGENTS.md
+UI-Upgrade.md
+mcp-plan.md

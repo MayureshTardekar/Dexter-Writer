@@ -216,7 +216,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
     'dexter_list_files',
     {
       title: 'List files in a project',
-      description: 'List every text file in a project with its path, syntax mode, and current version. Call this before editing so the next stage_edit uses the right base_version.',
+      description: 'List every text file in a project with its path, syntax mode, and current version. Call this before editing so the next edit uses the right base_version.',
       inputSchema: z.object({
         project_id: z.string().uuid().optional().describe('Project id. Omit to use the most recently updated project.'),
       }),
@@ -239,7 +239,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
     'dexter_read_file',
     {
       title: 'Read a project file',
-      description: 'Read one text file. Large files are truncated; use stage_edit with old_text and new_text to change a specific passage without replacing the whole file.',
+      description: 'Read one text file. Large files are truncated; use dexter_stage_edit with old_text and new_text to change a specific passage without replacing the whole file.',
       inputSchema: z.object({
         path: z.string().min(1).describe('Exact file path, for example chapters/intro.md or main.tex.'),
         project_id: z.string().uuid().optional(),
@@ -305,15 +305,15 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
   server.registerTool(
     'dexter_stage_edit',
     {
-      title: 'Stage an AI edit for human review',
-      description: 'Stage a change without applying it. The human must accept the edit in Dexter Write. Pass new_content to replace the whole file, or old_text/new_text to replace one exact passage. base_version must match the version returned by list_files or read_file.',
+      title: 'Apply an edit immediately',
+      description: 'Apply a change immediately with an optimistic base_version check and a revision snapshot for Undo. Pass new_content to replace the whole file, or old_text/new_text to replace one exact passage. base_version must match the version returned by list_files or read_file.',
       inputSchema: z.object({
         path: z.string().min(1),
         base_version: z.number().int().nonnegative().describe('Current file version. Use 0 only when creating a new file.'),
         new_content: z.string().optional(),
         old_text: z.string().min(1).optional(),
         new_text: z.string().optional(),
-        summary: z.string().min(1).max(500).describe('One sentence describing the change for the human reviewer.'),
+        summary: z.string().min(1).max(500).describe('One sentence describing the change for the revision history.'),
         project_id: z.string().uuid().optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -325,7 +325,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
       const file = await findFile(db, project.id, cleanPath);
       if (!file) return fail(`File not found: ${cleanPath}. Use dexter_create_file for a new file.`);
       if (file.version !== base_version) {
-        return fail(`Stale base_version ${base_version}; the file is now version ${file.version}. Read it again before staging.`);
+        return fail(`Stale base_version ${base_version}; the file is now version ${file.version}. Read it again before editing.`);
       }
 
       let content: string;
@@ -341,31 +341,31 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
       }
 
       assertTextSize(cleanPath, content);
-      if (content === file.content) return fail('The staged content is identical to the current file.');
+      if (content === file.content) return fail('The new content is identical to the current file.');
 
-      const { data, error } = await db
-        .from('staged_edits')
-        .insert({
-          project_id: project.id,
-          file_id: file.id,
-          path: cleanPath,
-          base_version,
-          new_content: content,
-          summary,
-          created_by: 'ai',
-        })
-        .select('id,path,base_version,status,created_at')
-        .single();
+      const { data, error } = await db.rpc('apply_ai_edit', {
+        p_project_id: project.id,
+        p_file_id: file.id,
+        p_path: cleanPath,
+        p_base_version: base_version,
+        p_new_content: content,
+        p_summary: summary,
+      });
       if (error) return fail(error.message);
-      return json({ staged: data, message: 'Edit staged. It will not change the file until the human accepts it in Dexter Write.' });
+      const applied = Array.isArray(data) ? data[0] : data;
+      return json({
+        applied,
+        path: cleanPath,
+        message: 'Edit applied immediately. The previous content is saved in revision history for Undo.',
+      });
     },
   );
 
   server.registerTool(
     'dexter_create_file',
     {
-      title: 'Stage a new file',
-      description: 'Stage a brand-new text file for human review. The file appears only after the human accepts it in Dexter Write.',
+      title: 'Create a file immediately',
+      description: 'Create a brand-new text file immediately. The previous state is recorded so the creation can be undone from revision history.',
       inputSchema: z.object({
         path: z.string().min(1),
         content: z.string(),
@@ -382,29 +382,29 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
       if (existing) return fail(`${cleanPath} already exists. Use dexter_stage_edit instead.`);
       assertTextSize(cleanPath, content);
 
-      const { data, error } = await db
-        .from('staged_edits')
-        .insert({
-          project_id: project.id,
-          file_id: null,
-          path: cleanPath,
-          base_version: 0,
-          new_content: content,
-          summary,
-          created_by: 'ai',
-        })
-        .select('id,path,base_version,status,created_at')
-        .single();
+      const { data, error } = await db.rpc('apply_ai_edit', {
+        p_project_id: project.id,
+        p_file_id: null,
+        p_path: cleanPath,
+        p_base_version: 0,
+        p_new_content: content,
+        p_summary: summary,
+      });
       if (error) return fail(error.message);
-      return json({ staged: data, mode: modeForPath(cleanPath), message: 'New file staged. It appears after the human accepts it.' });
+      const applied = Array.isArray(data) ? data[0] : data;
+      return json({
+        applied,
+        mode: modeForPath(cleanPath),
+        message: 'File created immediately. Undo is available from revision history.',
+      });
     },
   );
 
   server.registerTool(
-    'dexter_pending_edits',
+    'dexter_recent_edits',
     {
-      title: 'List pending AI edits',
-      description: 'List edits that are waiting for human review. This does not include the full replacement text.',
+      title: 'List recent AI edits',
+      description: 'List recent AI revisions that were applied directly. Undo is available in Dexter Write.',
       inputSchema: z.object({
         project_id: z.string().uuid().optional(),
       }),
@@ -413,9 +413,9 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
     async ({ project_id }) => {
       if (!(await recordToolCall(admin, userId))) return fail('Daily tool call limit reached (100). Try again tomorrow.');
       let query = db
-        .from('staged_edits')
-        .select('id,project_id,file_id,path,base_version,summary,status,created_at')
-        .eq('status', 'pending')
+        .from('revisions')
+        .select('id,project_id,file_id,path,version,actor,summary,created_at')
+        .eq('actor', 'ai')
         .order('created_at', { ascending: false })
         .limit(50);
       if (project_id) query = query.eq('project_id', project_id);
@@ -429,7 +429,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
     'dexter_compile_document',
     {
       title: 'Compile a LaTeX project in the cloud',
-      description: 'Compile the current cloud files with Tectonic on AWS Lambda and return a signed PDF URL plus page count. This compiles accepted files only; accept staged edits in Dexter Write first. LaTeX only.',
+      description: 'Compile the current cloud files with Tectonic on AWS Lambda and return a signed PDF URL plus page count. This compiles the current cloud files after edits apply. LaTeX only.',
       inputSchema: z.object({
         project_id: z.string().uuid().optional(),
         main_path: z.string().optional().describe('The root .tex file. Defaults to the active file, main.tex, or the first root .tex file.'),
