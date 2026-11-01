@@ -1,7 +1,7 @@
 // Dexter Write — Offline Service Worker
 // Enables 100% offline document editing, Monaco workers, and KaTeX fonts.
 
-const CACHE_NAME = 'dexter-write-v1';
+const CACHE_NAME = 'dexter-write-v2';
 
 const STATIC_SHELL_ASSETS = [
   './',
@@ -49,6 +49,16 @@ self.addEventListener('fetch', (event) => {
   }
 
   const url = new URL(request.url);
+
+  // Never intercept loopback bridge, SSE event streams, or third-party APIs
+  if (
+    url.hostname === '127.0.0.1' ||
+    url.hostname === 'localhost' ||
+    url.pathname === '/events' ||
+    (url.origin !== self.location.origin && !url.hostname.includes('cdn.jsdelivr.net'))
+  ) {
+    return;
+  }
 
   // Strategy 1: HTML Navigations -> Network-first with cache fallback
   if (request.mode === 'navigate') {

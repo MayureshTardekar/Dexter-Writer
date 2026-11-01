@@ -477,6 +477,7 @@ export class McpBridgeClient {
   private access: BridgeAccess | null = null;
   private stopped = true;
   private status: BridgeStatus = 'off';
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: McpBridgeClientOptions = {}) {
     this.baseUrl = options.baseUrl || defaultBridgeUrl();
@@ -510,7 +511,20 @@ export class McpBridgeClient {
       if (!this.stopped && this.source === source) this.emit('live');
     });
     source.addEventListener('error', () => {
-      if (!this.stopped && this.source === source) this.emit('offline');
+      if (!this.stopped && this.source === source) {
+        this.emit('offline');
+        if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.source?.close();
+        this.source = null;
+        this.reconnectTimer = setTimeout(() => {
+          if (!this.stopped && !this.source) {
+            this.connect();
+          }
+        }, 5000);
+      }
     });
     source.addEventListener('request', (event) => {
       if (this.stopped || this.source !== source) return;
@@ -558,6 +572,10 @@ export class McpBridgeClient {
   stop() {
     this.stopped = true;
     this.access = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.source?.close();
     this.source = null;
     this.emit('off');
