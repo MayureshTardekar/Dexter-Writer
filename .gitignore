@@ -81,3 +81,6 @@ INTERVIEW_PREP.md
 AGENTS.md
 UI-Upgrade.md
 mcp-plan.md
+
+supabase/.temp/
+test_mcp_call.mjs
