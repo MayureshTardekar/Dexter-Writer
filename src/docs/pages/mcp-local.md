@@ -41,6 +41,23 @@ npm run mcp:daemon
 
 You no longer need a separate server per client.
 
+### Using the hosted Vercel app
+
+A hosted page cannot launch a process on your computer. If you want the AI to edit the tab at
+`https://dexter-writer.vercel.app`, start the bridge once locally, then keep that tab open.
+
+On Windows, double-click **Start Dexter Bridge.cmd** in the Dexter Write folder. It opens the hosted app
+and starts the shared bridge in a minimized window. Double-click **Stop Dexter Bridge.cmd** when finished.
+
+Or run:
+
+```bash
+npm run mcp:daemon
+```
+
+The daemon re-pairs automatically with the next browser tab when no tab is currently connected. If a tab is
+connected, run `npm run mcp:stop` before switching between localhost and Vercel.
+
 ### 3. Copy the client config
 
 Choose the client in the wizard and click **Copy config**. The block looks like this:

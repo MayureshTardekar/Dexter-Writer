@@ -42,6 +42,7 @@ Use **Undo AI** immediately. Undo is blocked if the file changed after the AI ac
 - Does the client use the absolute path from the Connect wizard?
 - Did you restart the MCP client after editing its config?
 - Run `npm run mcp:status` and `npm run mcp:stop` if an older process owns port 3088.
+- On the hosted Vercel app, double-click **Start Dexter Bridge.cmd** once; a hosted page cannot launch local processes.
 
 The current build uses one shared daemon plus lightweight stdio proxies. Do not start a separate bridge for each client.
 

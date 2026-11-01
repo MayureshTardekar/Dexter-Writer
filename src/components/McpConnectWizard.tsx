@@ -68,6 +68,7 @@ export default function McpConnectWizard({ bridgeEnabled, bridgeStatus, onToggle
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
+  const hosted = !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 
   const refresh = useCallback(async () => {
     const nextHealth = await fetchBridgeHealth();
@@ -154,23 +155,42 @@ export default function McpConnectWizard({ bridgeEnabled, bridgeStatus, onToggle
       {!setup ? (
         <div className="mcp-wizard-start">
           <div className="mcp-wizard-state">
-            <strong>{health?.daemon ? 'Daemon ready, waiting for this tab' : 'Local bridge is not running'}</strong>
+            <strong>
+              {health?.daemon
+                ? 'Daemon ready, waiting for this tab'
+                : hosted
+                  ? 'Bridge is not running on this computer'
+                  : 'Local bridge is not running'}
+            </strong>
             <span className="muted small">
-              {health?.version ? `Version ${health.version}` : 'Start it from here. No terminal needed in local development.'}
+              {health?.version
+                ? `Version ${health.version}`
+                : hosted
+                  ? 'A hosted page cannot launch local processes. Run the bridge once on this computer, then retry.'
+                  : 'Start it from here. No terminal needed in local development.'}
             </span>
           </div>
           {error && <div className="mcp-error">{error}</div>}
           <div className="mcp-add" style={{ margin: '8px 0 0' }}>
-            <button className="btn primary" onClick={() => { void startBridge(); }} disabled={starting}>
-              {starting ? 'Starting…' : 'Start local bridge'}
-            </button>
+            {hosted ? (
+              <button className="btn primary" onClick={() => { void testConnection(); }}>
+                Retry connection
+              </button>
+            ) : (
+              <button className="btn primary" onClick={() => { void startBridge(); }} disabled={starting}>
+                {starting ? 'Starting…' : 'Start local bridge'}
+              </button>
+            )}
             <button className="btn xs" onClick={() => { void navigator.clipboard?.writeText('npm run mcp:daemon').then(() => toast('Command copied.', 'success', 2200), () => toast('Could not copy.', 'error', 3000)); }}>
               Copy command
             </button>
+            {!bridgeEnabled && <button className="btn xs" onClick={onToggleBridge}>Enable browser bridge</button>}
             <button className="btn xs ghost" onClick={() => { void testConnection(); }}>Test connection</button>
           </div>
           <p className="muted small" style={{ margin: '8px 0 0' }}>
-            If an AI client is already configured, just restart it. It will start the shared bridge automatically.
+            {hosted
+              ? 'Easiest on Windows: double-click Start Dexter Bridge.cmd in the Dexter Write folder. Keep this tab open afterwards.'
+              : 'If an AI client is already configured, just restart it. It will start the shared bridge automatically.'}
           </p>
         </div>
       ) : (

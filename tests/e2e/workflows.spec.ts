@@ -35,6 +35,90 @@ test('image upload, nested document insertion, reload and HTML/ZIP exports', asy
   expect(errors).toEqual([]);
 });
 
+test('Escape closes the active dialog, including review, project hub, and asset library', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  await createDocument(page);
+
+  await page.getByRole('button', { name: 'Document Review', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Autonomous Document Review Agent' });
+  await expect(review).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(review).toBeHidden();
+
+  await page.getByRole('button', { name: 'Project start', exact: true }).click();
+  const hub = page.getByRole('dialog', { name: 'Project start and import' });
+  await expect(hub).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(hub).toBeHidden();
+
+  await page.getByRole('button', { name: 'Images and attachments', exact: true }).click();
+  const assets = page.getByRole('dialog', { name: 'Images and attachments' });
+  await expect(assets).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(assets).toBeHidden();
+
+  expect(errors).toEqual([]);
+});
+
+test('MCP connect wizard exposes one shared AI writer path', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  await createDocument(page);
+  await page.getByRole('button', { name: 'External MCP', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'MCP server manager' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Connect an AI writer', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('One shared local bridge serves every AI client.')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /Start local bridge|Copy .* config/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('Cloud panel hides developer setup behind a self-host section', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  await createDocument(page);
+  await page.getByRole('button', { name: 'Cloud sync and remote MCP', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Cloud and remote MCP' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Cloud sync is not configured on this deployment')).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Read the cloud setup guide' })).toBeVisible();
+  await expect(dialog.getByText('VITE_SUPABASE_URL', { exact: false })).not.toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('documentation site navigates, searches, scrolls sections, and opens mobile navigation', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/docs');
+  await expect(page).toHaveTitle(/Dexter Write Documentation/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Dexter Write Documentation' })).toBeVisible();
+  await expect(page.locator('.docs-nav-link')).toHaveCount(14);
+
+  await page.locator('.docs-nav-link').filter({ hasText: 'Writing and the editor' }).click();
+  await expect(page.locator('.docs-hero h1')).toHaveText('Writing and the editor');
+  await page.locator('.docs-toc nav button').filter({ hasText: 'Autosave, history, and undo' }).click();
+  await expect(page).toHaveURL(/#editor\/autosave-history-and-undo$/);
+  await expect.poll(() => page.locator('.docs-main').evaluate((element) => element.scrollTop)).toBeGreaterThan(200);
+
+  const search = page.getByLabel('Search documentation');
+  await search.fill('MCP');
+  await expect(page.locator('.docs-search-result').first()).toContainText('Local MCP bridge');
+  await page.locator('.docs-search-result').first().click();
+  await expect(page.locator('.docs-hero h1')).toHaveText('Local MCP bridge');
+
+  await page.getByRole('button', { name: 'Switch to light theme' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/docs#editor');
+  await expect(page.locator('.docs-sidebar')).toBeHidden();
+  await page.getByRole('button', { name: 'Open documentation navigation' }).click();
+  await expect(page.locator('.docs-sidebar')).toBeVisible();
+  await expect(page.locator('.docs-nav-scrim')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('local import preview preserves existing work and validation finds missing assets', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Import project files').setInputFiles({ name: 'notes.md', mimeType: 'text/markdown', buffer: Buffer.from('# Imported\n\n![missing](assets/missing.png)') });

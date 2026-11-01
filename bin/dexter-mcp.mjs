@@ -13,6 +13,7 @@ const SERVER_NAME = 'dexter-write';
 const SERVER_VERSION = '1.2.0';
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 3088;
+const DEFAULT_ALLOWED_ORIGINS = ['https://dexter-writer.vercel.app'];
 const REQUEST_TIMEOUT_MS = 20_000;
 const COMPILE_TIMEOUT_MS = 90_000;
 const MAX_BODY_BYTES = 1_000_000;
@@ -361,6 +362,7 @@ function extraAllowedOrigins() {
 
 function originAllowed(origin) {
   if (!origin) return false;
+  if (DEFAULT_ALLOWED_ORIGINS.includes(origin)) return true;
   if (extraAllowedOrigins().includes(origin)) return true;
   try {
     const url = new URL(origin);
@@ -483,6 +485,12 @@ function createBridge(options = {}) {
     }
     if (storedToken) {
       if (!tokensMatch(storedToken, token)) {
+        if (clients.size === 0 && token.length >= 16) {
+          storedToken = token;
+          if (persistToken) writeTokenFile(storedToken);
+          log('Re-paired with a new Dexter Write browser tab.');
+          return { ok: true, origin };
+        }
         return { ok: false, status: 401, origin, error: 'Bridge pairing token does not match.' };
       }
       return { ok: true, origin };
@@ -1201,6 +1209,11 @@ async function runSelfTest() {
   const setup = await setupRes.json();
   assert.equal(setup.projectDir, PROJECT_DIR);
   assert.ok(setup.configs.antigravity.mcpServers['dexter-write']);
+
+  const hostedSetupRes = await fetch(`${url}/setup?token=${encodeURIComponent(token)}`, {
+    headers: { Origin: 'https://dexter-writer.vercel.app' },
+  });
+  assert.equal(hostedSetupRes.status, 200);
 
   const unauthorized = await fetch(`${url}/rpc`, {
     method: 'POST',

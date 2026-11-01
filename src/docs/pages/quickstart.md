@@ -57,6 +57,8 @@ Review the proposed change in diff mode before applying it. Every applied AI act
 
 Keep the app open, open **MCP → Connect an AI writer**, and click **Start local bridge**. Choose Claude Desktop, Cursor, Antigravity, or another stdio-capable client and copy its config from the wizard.
 
+If you are using the hosted Vercel app, double-click **Start Dexter Bridge.cmd** in the project folder first; the hosted page cannot start local processes by itself.
+
 One shared daemon serves every client, so you can leave more than one AI app connected. The agent can read project files, apply edits, compile, and read diagnostics. See [Local MCP](/docs#mcp-local) for the full setup.
 
 ## 6. Compile and export
