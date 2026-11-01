@@ -126,6 +126,140 @@ export function defaultBridgeUrl(): string {
   return env?.VITE_DEXTER_MCP_BRIDGE_URL || BRIDGE_DEFAULT_URL;
 }
 
+export interface BridgeHealth {
+  ok: boolean;
+  server?: string;
+  version?: string;
+  daemon?: boolean;
+  rpc?: boolean;
+  setup?: boolean;
+  paired?: boolean;
+  clients?: number;
+  active?: boolean;
+}
+
+export interface BridgeClientConfig {
+  mcpServers: Record<string, {
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    timeoutSeconds?: number;
+    env?: Record<string, string>;
+  }>;
+}
+
+export interface BridgeSetup {
+  ok: boolean;
+  server: string;
+  version: string;
+  projectDir: string;
+  scriptPath: string;
+  nodePath: string;
+  bridgeUrl: string;
+  port: number;
+  daemon: boolean;
+  paired: boolean;
+  clients: number;
+  configs: {
+    claude: BridgeClientConfig;
+    cursor: BridgeClientConfig;
+    antigravity: BridgeClientConfig;
+    generic: BridgeClientConfig;
+  };
+  startCommand: string;
+  stopCommand: string;
+}
+
+export interface LocalBridgeStartResult {
+  ok: boolean;
+  health?: BridgeHealth | null;
+  error?: string;
+  autoStart?: boolean;
+}
+
+async function jsonResponse<T>(res: Response): Promise<T | null> {
+  const type = res.headers.get('content-type') || '';
+  if (!type.includes('application/json')) return null;
+  try {
+    return await res.json() as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchBridgeHealth(
+  baseUrl = defaultBridgeUrl(),
+  timeoutMs = 1_500,
+): Promise<BridgeHealth | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(new URL('/health', baseUrl), {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return await jsonResponse<BridgeHealth>(res);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchBridgeSetup(
+  baseUrl = defaultBridgeUrl(),
+  token = ensureBridgeToken(),
+): Promise<BridgeSetup | null> {
+  const url = new URL('/setup', baseUrl);
+  url.searchParams.set('token', token);
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const setup = await jsonResponse<BridgeSetup>(res);
+    return setup?.ok ? setup : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function startLocalBridgeDaemon(): Promise<LocalBridgeStartResult> {
+  try {
+    const res = await fetch('/__dexter/mcp/start', {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await jsonResponse<LocalBridgeStartResult>(res);
+    if (!payload) {
+      return {
+        ok: false,
+        error: 'Auto-start is available in local development. Run "npm run mcp:daemon" once.',
+      };
+    }
+    return payload;
+  } catch {
+    return {
+      ok: false,
+      error: 'Could not reach the local development server. Run "npm run mcp:daemon" once.',
+    };
+  }
+}
+
+export async function stopLocalBridgeDaemon(): Promise<boolean> {
+  try {
+    const res = await fetch('/__dexter/mcp/stop', {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await jsonResponse<{ ok?: boolean }>(res);
+    return Boolean(payload?.ok);
+  } catch {
+    return false;
+  }
+}
+
 function positiveInt(value: unknown): number | undefined {
   if (typeof value !== 'number' && typeof value !== 'string') return undefined;
   const parsed = typeof value === 'number' ? value : Number(value.trim() || NaN);

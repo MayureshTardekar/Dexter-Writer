@@ -594,21 +594,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const closeTop = useCallback(() => {
-    if (pendingImport) setPendingImport(null);
-    else if (showCitations) setShowCitations(false);
-    else if (showHistory) setShowHistory(false);
-    else if (showShortcuts) setShowShortcuts(false);
-    else if (showGithub) setShowGithub(false);
-    else if (showLive) setShowLive(false);
-    else if (showCloud) setShowCloud(false);
-    else if (showMcp) setShowMcp(false);
-    else if (showByok) setShowByok(false);
-    else if (aiFixProposal) setAiFixProposal(null);
-    else if (paletteOpen) setPaletteOpen(false);
-  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showCloud, showMcp, showByok, aiFixProposal, paletteOpen]);
-
-  // Global shortcuts: palette, save-guard, Esc-to-close.
+  // Global shortcuts: palette, save-guard. Esc-to-close is handled by modal headers.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -621,13 +607,11 @@ export default function App() {
       } else if (mod && e.key === 'Enter') {
         e.preventDefault();
         triggerRecompile();
-      } else if (e.key === 'Escape' && !paletteOpen) {
-        closeTop();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closeTop, paletteOpen]);
+  }, [triggerRecompile]);
 
   const stats = useMemo(() => getDocStats(docContent), [docContent]);
   const outline = useMemo(() => getDocumentOutline(docContent, docMode), [docContent, docMode]);
@@ -1621,6 +1605,9 @@ export default function App() {
               <Icon name="undo" size={14} /><span className="btn-label optional">Undo AI</span>
             </button>
           )}
+          <a className="btn xs" href="./docs" title="Documentation">
+            <Icon name="book" size={14} /><span className="btn-label optional">Docs</span>
+          </a>
           <button className="btn xs icon-btn tb-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
           </button>

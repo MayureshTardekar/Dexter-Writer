@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEscapeClose } from '../lib/useEscapeClose';
 import Icon, { type IconName } from './icons';
 
 export interface PaletteAction {
@@ -15,6 +16,7 @@ export default function CommandPalette({ open, onClose, actions }: { open: boole
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  useEscapeClose(onClose, open);
 
   useEffect(() => {
     if (open) {

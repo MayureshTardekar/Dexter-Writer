@@ -58,7 +58,13 @@ function success(
   name: string,
   message: string,
 ): ExternalEditResult {
-  return { ok: true, workspace, name, files: workspace.changes.length, message };
+  return {
+    ok: true,
+    workspace: { ...workspace, activeName: name },
+    name,
+    files: workspace.changes.length,
+    message,
+  };
 }
 
 export function stageExternalStringEdit(
@@ -83,7 +89,7 @@ export function stageExternalStringEdit(
   return success(
     next,
     target.name,
-    `${result.content} Staged for review in Dexter Write; nothing has been applied yet.`,
+    `${result.content} Applied in Dexter Write; an undo snapshot is available.`,
   );
 }
 
@@ -120,6 +126,6 @@ export function stageExternalInsertion(
   return success(
     next,
     target.name,
-    `${inserted.message}. Staged for review in Dexter Write; nothing has been applied yet.`,
+    `${inserted.message}. Applied in Dexter Write; an undo snapshot is available.`,
   );
 }

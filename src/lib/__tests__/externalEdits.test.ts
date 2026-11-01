@@ -40,7 +40,24 @@ describe('external MCP staging', () => {
     expect(result.workspace.changes[0].after).toBe('# Title\nBeta\nGamma');
     expect(result.workspace.changes[0].labels.join(' ')).toContain('External');
     expect(result.workspace.changes[0].labels.join(' ')).toContain('rename section');
+    expect(result.workspace.activeName).toBe('main.md');
     expect(main.content).toBe('# Title\nAlpha\nGamma');
+  });
+
+  it('focuses the file changed by an external agent', () => {
+    const refs: ExternalTargetFile = {
+      id: 'file_refs',
+      name: 'refs.bib',
+      mode: 'latex',
+      content: '@article{one}',
+    };
+    const result = stageExternalStringEdit(createWorkspace(), refs, {
+      old_string: '@article{one}',
+      new_string: '@article{one, title={One}}',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.workspace.activeName).toBe('refs.bib');
   });
 
   it('stacks edits on the staged content and rejects stale bases', () => {

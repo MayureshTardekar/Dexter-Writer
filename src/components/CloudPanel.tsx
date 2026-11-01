@@ -192,15 +192,27 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
 
           {!cloudConfigured && (
             <div className="cloud-card">
-              <h3>Enable cloud sync</h3>
-              <p className="muted small" style={{ margin: 0 }}>
-                Create a free Supabase project, run <code>supabase/migrations/0001_init.sql</code>, then add these to <code>.env</code> and rebuild.
+              <h3>Cloud sync is not configured on this deployment</h3>
+              <p className="muted small" style={{ margin: 0, lineHeight: 1.6 }}>
+                You can keep writing locally. Cloud sync and the remote MCP connector need a Supabase backend
+                connected to this build.
               </p>
-              <pre className="cloud-code">{`VITE_SUPABASE_URL=https://your-project.supabase.co
+              <div className="cloud-signin">
+                <a className="btn" href="./docs#cloud">Read the cloud setup guide</a>
+              </div>
+              <details className="muted small" style={{ marginTop: 8 }}>
+                <summary>Self-host setup (developers)</summary>
+                <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
+                  Run <code>supabase/migrations/0001_init.sql</code> and <code>0002_direct_ai_edits.sql</code>,
+                  then set these build-time variables and redeploy:
+                </p>
+                <pre className="cloud-code">{`VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key`}</pre>
-              <p className="cloud-foot-note">
-                The anon key is public by design. Row level security and the GitHub allowlist protect every row and storage object.
-              </p>
+                <p className="cloud-foot-note">
+                  The anon key is public by design. Row level security and the GitHub allowlist protect every
+                  row and storage object. Never expose the service role key in the browser.
+                </p>
+              </details>
             </div>
           )}
 
@@ -235,11 +247,17 @@ VITE_SUPABASE_ANON_KEY=your-anon-key`}</pre>
 
               {!account.allowed && (
                 <div className="cloud-warning">
-                  Your GitHub username is not on the allowlist. Add it in the Supabase SQL editor:
-                  <pre className="cloud-code">{`insert into public.allowed_users (github_username, note)
+                  <strong>Access pending</strong>
+                  <p style={{ margin: '4px 0 0' }}>
+                    Your GitHub username is not on this workspace&apos;s allowlist. Ask the workspace owner to
+                    allow <code>@{account.username.toLowerCase()}</code>, then sign out and sign back in.
+                  </p>
+                  <details className="muted small" style={{ marginTop: 6 }}>
+                    <summary>Owner setup: allow this GitHub username</summary>
+                    <pre className="cloud-code">{`insert into public.allowed_users (github_username, note)
 values ('${account.username.toLowerCase()}', 'owner')
 on conflict (github_username) do nothing;`}</pre>
-                  Then sign out and sign back in.
+                  </details>
                 </div>
               )}
 

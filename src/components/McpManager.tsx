@@ -10,6 +10,7 @@ import {
 import type { BridgeStatus } from '../lib/mcp/bridgeClient';
 import { askConfirm } from '../lib/dialog';
 import { toast } from '../lib/toast';
+import McpConnectWizard from './McpConnectWizard';
 import ModalHeader from './ModalHeader';
 
 interface Props {
@@ -44,24 +45,7 @@ const PRESETS: Array<{ label: string; name: string; url: string; transport: McpT
   },
 ];
 
-function copyText(text: string, label: string) {
-  if (!navigator.clipboard) {
-    toast('Clipboard is not available in this browser.', 'error', 3500);
-    return;
-  }
-  navigator.clipboard.writeText(text).then(
-    () => toast(`${label} copied.`, 'success', 2600),
-    () => toast('Could not access the clipboard.', 'error', 3500),
-  );
-}
-
-function dotClass(status: BridgeStatus): string {
-  if (status === 'live') return 'connected';
-  if (status === 'offline') return 'error';
-  return status === 'connecting' ? 'connecting' : '';
-}
-
-/** Phase 2: External MCP Server Manager (register / connect / permissions). */
+/** External MCP servers plus the one-click local AI writer connection. */
 export default function McpManager({
   servers,
   setServers,
@@ -74,34 +58,6 @@ export default function McpManager({
   const [url, setUrl] = useState('');
   const [transport, setTransport] = useState<McpTransport>('http');
   const [busy, setBusy] = useState<string | null>(null);
-  const [projectDir, setProjectDir] = useState('');
-  const folder = typeof navigator !== 'undefined' && /win/i.test(navigator.userAgent)
-    ? 'C:\\code\\dexter-write'
-    : '/path/to/dexter-write';
-  const cleanFolder = projectDir.trim().replace(/[\\/]+$/, '');
-  const scriptPath = `${cleanFolder || `<project-folder>`}/bin/dexter-mcp.mjs`;
-  const bridgeConfig = JSON.stringify({
-    mcpServers: {
-      'dexter-write': { command: 'node', args: [scriptPath] },
-    },
-  }, null, 2);
-  const tunnelCommand = `tunnel-client init --sample sample_mcp_stdio_local --profile dexter-write --tunnel-id tunnel_YOUR_ID --mcp-command 'node "${scriptPath}"'`;
-
-  function copyBridgeConfig() {
-    if (!cleanFolder) {
-      toast('Enter the Dexter Write project folder first.', 'info', 3500);
-      return;
-    }
-    copyText(bridgeConfig, 'Claude Desktop config');
-  }
-
-  function copyTunnelCommand() {
-    if (!cleanFolder) {
-      toast('Enter the Dexter Write project folder first.', 'info', 3500);
-      return;
-    }
-    copyText(tunnelCommand, 'ChatGPT tunnel command');
-  }
 
   function update(id: string, patch: Partial<ExternalMcpServer>) {
     setServers(servers.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -162,99 +118,31 @@ export default function McpManager({
           icon="plug"
           title="MCP Connections"
           category="AI Tools"
-          sub="Connect remote MCP servers over Streamable HTTP or legacy SSE. The AI can call enabled tools — each call asks permission first unless set to always-allow."
+          sub="Connect a local AI writer through one shared bridge, or add outbound MCP servers. External tool calls ask permission first unless set to always-allow."
           onClose={onClose}
         />
         <div className="modal-body">
           <div className="mcp-server" style={{ marginBottom: 14 }}>
-            <div className="mcp-head">
-              <strong>Dexter Write bridge (inbound)</strong>
-              <span className={`dot ${dotClass(bridgeStatus)}`}>{bridgeStatus}</span>
-              <span className="spacer" />
-              <button className={`btn xs ${bridgeEnabled ? '' : 'primary'}`} onClick={onToggleBridge}>
-                {bridgeEnabled ? 'Disable bridge' : 'Enable bridge'}
-              </button>
-            </div>
-            <p className="muted small" style={{ margin: '7px 0' }}>
-              Let MCP clients such as Claude Desktop, Cursor, or ChatGPT web read and edit this tab directly.
-              Every applied edit is snapshotted, and Undo stays available from the notice or document history.
-            </p>
-            <div className="mcp-add" style={{ margin: '8px 0' }}>
-              <input
-                value={projectDir}
-                onChange={(e) => setProjectDir(e.target.value)}
-                placeholder={`Project folder, e.g. ${folder}`}
-                aria-label="Dexter Write project folder"
-                style={{ flex: '2 1 260px' }}
-              />
-              <button className="btn xs" onClick={() => copyText('npm run mcp', 'Start command')}>
-                Copy start command
-              </button>
-              <button className="btn xs" onClick={copyBridgeConfig}>
-                Copy Claude Desktop config
-              </button>
-              <button className="btn xs" onClick={copyTunnelCommand}>
-                Copy ChatGPT tunnel command
-              </button>
-            </div>
-            <details className="muted small">
-              <summary>Bridge setup steps</summary>
-              <ol style={{ margin: '8px 0 0 18px', lineHeight: 1.6 }}>
-                <li>Keep this bridge enabled and run <code>npm run mcp</code> in the project folder.</li>
-                <li>
-                  Paste the copied JSON into Claude Desktop&apos;s config (Settings → Developer → Edit Config),
-                  or the same <code>mcpServers</code> shape in Cursor&apos;s MCP settings.
-                </li>
-                <li>
-                  Prefer the exact path? Run <code>npm run mcp:config</code> to print a ready config.
-                  Use <code>npm run mcp:self-test</code> to check the daemon.
-                </li>
-                <li>
-                  The daemon listens on <code>127.0.0.1:3088</code> only. Use <code>--reset-token</code> if the
-                  app was cleared or you need to re-pair.
-                </li>
-              </ol>
-            </details>
-            <details className="muted small" style={{ marginTop: 8 }}>
-              <summary>ChatGPT web setup (Secure MCP Tunnel)</summary>
+            <McpConnectWizard
+              bridgeEnabled={bridgeEnabled}
+              bridgeStatus={bridgeStatus}
+              onToggleBridge={onToggleBridge}
+            />
+            <details className="muted small" style={{ marginTop: 12 }}>
+              <summary>Advanced: manual commands and ChatGPT web</summary>
               <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
-                ChatGPT web can use this bridge through OpenAI&apos;s Secure MCP Tunnel, without exposing
-                port 3088 to the internet. Create a tunnel and runtime API key in{' '}
-                <a
-                  href="https://platform.openai.com/settings/organization/tunnels"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Platform tunnel settings
-                </a>
-                , install{' '}
-                <a
-                  href="https://github.com/openai/tunnel-client/releases/latest"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  tunnel-client
-                </a>
-                , then run the copied init command.
+                The shared daemon owns <code>127.0.0.1:3088</code>. The Connect wizard is the normal path;
+                these commands are only for debugging or self-hosting.
               </p>
-              <ol style={{ margin: '8px 0 0 18px', lineHeight: 1.6 }}>
-                <li>Set <code>CONTROL_PLANE_API_KEY</code> in your shell; never paste it into chat.</li>
-                <li>
-                  Run <code>tunnel-client doctor --profile dexter-write --explain</code>, then{' '}
-                  <code>tunnel-client run --profile dexter-write</code>. This starts the daemon, so stop
-                  any separate <code>npm run mcp</code> first.
-                </li>
-                <li>
-                  At <code>chatgpt.com/plugins</code>, add a custom MCP server, choose{' '}
-                  <code>Connection: Tunnel</code>, select the tunnel, and use{' '}
-                  <code>No authentication</code>. Create and install the plugin.
-                </li>
-                <li>Keep Dexter Write open with this bridge enabled, then mention the plugin with <code>@</code>.</li>
-                <li>Run <code>npm run mcp:tunnel</code> to print the full setup with the exact local path.</li>
-              </ol>
+              <pre className="cloud-code">{`npm run mcp:daemon   # start the shared daemon
+npm run mcp:status   # health and connected tabs
+npm run mcp:stop     # stop the shared daemon
+npm run mcp:config   # print a client config
+npm run mcp:tunnel   # ChatGPT web tunnel setup`}</pre>
               <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
-                Custom MCP servers in ChatGPT depend on your plan, workspace, and permissions. Tunnel
-                requests are outbound-only, and every edit is applied directly with local snapshots for undo.
+                ChatGPT web can use this bridge through OpenAI&apos;s Secure MCP Tunnel without exposing
+                port 3088. Run <code>npm run mcp:tunnel</code> for the full setup. Custom MCP servers in ChatGPT
+                depend on your plan, workspace, and permissions.
               </p>
             </details>
           </div>

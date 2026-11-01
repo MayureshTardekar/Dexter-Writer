@@ -6,18 +6,23 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import readline from 'node:readline';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SERVER_NAME = 'dexter-write';
-const SERVER_VERSION = '1.1.0';
+const SERVER_VERSION = '1.2.0';
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 3088;
 const REQUEST_TIMEOUT_MS = 20_000;
 const COMPILE_TIMEOUT_MS = 90_000;
 const MAX_BODY_BYTES = 1_000_000;
+const DAEMON_TOKEN_HEADER = 'x-dexter-daemon-token';
+const DAEMON_START_TIMEOUT_MS = 8_000;
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const PROJECT_DIR = path.dirname(path.dirname(SCRIPT_PATH));
 const LATEST_LEGACY_PROTOCOL = '2025-11-25';
 const SUPPORTED_PROTOCOLS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', LATEST_LEGACY_PROTOCOL]);
-const SERVER_INSTRUCTIONS = 'Dexter Write bridge for the user\'s open local project. Read first with dexter_list_project_files, dexter_read_active_document, or dexter_read_project_file. Change files with dexter_stage_edit or dexter_insert_content; these apply immediately and keep an undo snapshot in Dexter Write. Verify with dexter_compile_document and dexter_get_diagnostics. Never claim a change was applied or a build passed without tool evidence. Keep Dexter Write open with the bridge enabled.';
+const SERVER_INSTRUCTIONS = 'Dexter Write bridge for the user\'s open local project. Read first with dexter_list_project_files, dexter_read_active_document, or dexter_read_project_file. Change files with dexter_stage_edit or dexter_insert_content; these apply immediately, focus the edited file in Dexter Write, and keep an undo snapshot. Pass filename explicitly when editing any file other than the active file. For LaTeX, place body text inside \\begin{document}...\\end{document}; never insert section text before \\documentclass. Verify with dexter_compile_document and dexter_get_diagnostics on the edited file. Never claim a change was applied or a build passed without tool evidence. Keep Dexter Write open with the bridge enabled.';
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -76,7 +81,7 @@ const TOOLS = [
   },
   {
     name: 'dexter_stage_edit',
-    description: 'Use this when changing existing text in a project file. Applies an exact-string edit immediately in Dexter Write and keeps an undo snapshot. old_string must occur exactly once unless replace_all is true.',
+    description: 'Use this when changing existing text in a project file. Applies an exact-string edit immediately, focuses the file in Dexter Write, and keeps an undo snapshot. old_string must occur exactly once unless replace_all is true. Pass filename when editing a non-active file.',
     annotations: STAGED_WRITE_ANNOTATIONS,
     inputSchema: {
       type: 'object',
@@ -94,7 +99,7 @@ const TOOLS = [
   },
   {
     name: 'dexter_insert_content',
-    description: 'Use this when adding new text to a project file. Inserts text before or after a specific line immediately and keeps an undo snapshot.',
+    description: 'Use this when adding new text to a project file. Inserts text before or after a specific line immediately, focuses the file in Dexter Write, and keeps an undo snapshot. For LaTeX, insert body content inside the document environment, never before \\documentclass. Pass filename when editing a non-active file.',
     annotations: STAGED_WRITE_ANNOTATIONS,
     inputSchema: {
       type: 'object',
@@ -112,7 +117,7 @@ const TOOLS = [
   },
   {
     name: 'dexter_compile_document',
-    description: 'Use this after edits to compile or validate a project file with the same engines as Dexter Write preview. Markdown is validated; LaTeX and Typst compile to PDF by default.',
+    description: 'Use this after edits to compile or validate a project file with the same engines as Dexter Write preview. Markdown is validated; LaTeX and Typst compile to PDF by default. Pass filename to compile the file you edited instead of whichever file is active.',
     annotations: READ_ONLY_ANNOTATIONS,
     inputSchema: {
       type: 'object',
@@ -192,8 +197,16 @@ const PROMPTS = [
   },
 ];
 
+let logFile = '';
+
 function log(...args) {
-  process.stderr.write(`[dexter-mcp] ${args.join(' ')}\n`);
+  const line = `[dexter-mcp] ${args.join(' ')}\n`;
+  process.stderr.write(line);
+  if (!logFile) return;
+  try {
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    fs.appendFileSync(logFile, line);
+  } catch { /* logging must never break the server */ }
 }
 
 function argValue(flag) {
@@ -233,6 +246,110 @@ function tokensMatch(expected, actual) {
   const a = Buffer.from(expected);
   const b = Buffer.from(actual);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function daemonTokenFilePath() {
+  return process.env.DEXTER_MCP_DAEMON_TOKEN_FILE
+    || path.join(os.homedir(), '.dexter-write', 'mcp-daemon-token');
+}
+
+function daemonLogFilePath() {
+  return process.env.DEXTER_MCP_LOG_FILE
+    || path.join(os.homedir(), '.dexter-write', 'mcp-daemon.log');
+}
+
+function readDaemonTokenFile() {
+  try {
+    return fs.readFileSync(daemonTokenFilePath(), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+function ensureDaemonTokenFile() {
+  const existing = readDaemonTokenFile();
+  if (existing) return existing;
+  const token = crypto.randomBytes(32).toString('hex');
+  const file = daemonTokenFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, token, { encoding: 'utf8', mode: 0o600 });
+  return token;
+}
+
+function daemonUrl(port = DEFAULT_PORT) {
+  return `http://${HOST}:${port}`;
+}
+
+async function bridgeHealth(port = DEFAULT_PORT, timeoutMs = 900) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${daemonUrl(port)}/health`, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForHealth(port, predicate, timeoutMs = DAEMON_START_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await bridgeHealth(port);
+    if (last && predicate(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  return last && predicate(last) ? last : null;
+}
+
+function spawnDaemon(port) {
+  const child = spawn(process.execPath, [SCRIPT_PATH, '--daemon', '--port', String(port)], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env: { ...process.env, DEXTER_MCP_DAEMON_CHILD: '1' },
+  });
+  child.unref();
+}
+
+async function stopDaemon(port = DEFAULT_PORT) {
+  const token = readDaemonTokenFile();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${daemonUrl(port)}/shutdown`, {
+      method: 'POST',
+      headers: { [DAEMON_TOKEN_HEADER]: token },
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureDaemon(port = DEFAULT_PORT) {
+  const health = await bridgeHealth(port);
+  if (health) {
+    if (!health.daemon || !health.rpc) {
+      throw new Error(`Port ${port} is held by an older dexter-mcp process. Close the AI client that started it, or stop that process, then retry.`);
+    }
+    if (health.version === SERVER_VERSION) return health;
+    if (!(await stopDaemon(port))) {
+      throw new Error(`dexter-mcp ${String(health.version)} is running on port ${port}. Run "npm run mcp:stop" or restart the AI client, then retry.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  spawnDaemon(port);
+  const started = await waitForHealth(port, (item) => item.daemon && item.rpc && item.version === SERVER_VERSION);
+  if (!started) {
+    const latest = await bridgeHealth(port);
+    if (latest && latest.daemon) return latest;
+    throw new Error(`Could not start the shared dexter-mcp daemon on port ${port}. Run "npm run mcp:daemon" to see the error.`);
+  }
+  return started;
 }
 
 function extraAllowedOrigins() {
@@ -292,9 +409,48 @@ function readBody(req) {
   });
 }
 
+function clientConfigs() {
+  const stdio = { command: 'node', args: [SCRIPT_PATH] };
+  return {
+    claude: { mcpServers: { 'dexter-write': { ...stdio } } },
+    cursor: { mcpServers: { 'dexter-write': { ...stdio, cwd: PROJECT_DIR } } },
+    antigravity: {
+      mcpServers: {
+        'dexter-write': {
+          ...stdio,
+          cwd: PROJECT_DIR,
+          timeoutSeconds: 300,
+        },
+      },
+    },
+    generic: { mcpServers: { 'dexter-write': { ...stdio, cwd: PROJECT_DIR } } },
+  };
+}
+
+function setupPayload(bridge) {
+  return {
+    ok: true,
+    server: SERVER_NAME,
+    version: SERVER_VERSION,
+    projectDir: PROJECT_DIR,
+    scriptPath: SCRIPT_PATH,
+    nodePath: process.execPath,
+    bridgeUrl: daemonUrl(bridge.port),
+    port: bridge.port,
+    daemon: true,
+    paired: bridge.paired,
+    clients: bridge.clients,
+    configs: clientConfigs(),
+    startCommand: 'npm run mcp:daemon',
+    stopCommand: 'npm run mcp:stop',
+  };
+}
+
 function createBridge(options = {}) {
   const port = options.port ?? DEFAULT_PORT;
   const persistToken = options.persistToken ?? true;
+  const daemon = options.daemon ?? false;
+  const daemonToken = options.daemonToken || '';
   let storedToken = options.token || '';
   let server = null;
   let listeningPort = port;
@@ -338,6 +494,18 @@ function createBridge(options = {}) {
     if (persistToken) writeTokenFile(storedToken);
     log('Paired with a Dexter Write browser tab.');
     return { ok: true, origin };
+  }
+
+  function authorizeDaemon(req, url) {
+    const origin = String(req.headers.origin || '');
+    if (origin) {
+      return { ok: false, status: 403, error: 'The shared daemon accepts local processes only.' };
+    }
+    const token = String(req.headers[DAEMON_TOKEN_HEADER] || url.searchParams.get('daemon_token') || '');
+    if (!daemonToken || !tokensMatch(daemonToken, token)) {
+      return { ok: false, status: 401, error: 'Shared daemon token does not match.' };
+    }
+    return { ok: true };
   }
 
   function requestBrowser(method, params, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -434,10 +602,77 @@ function createBridge(options = {}) {
       ok: true,
       server: SERVER_NAME,
       version: SERVER_VERSION,
+      daemon,
+      rpc: daemon,
+      setup: daemon,
       paired: Boolean(storedToken),
       clients: clients.size,
       active: Boolean(activeClientId),
     }, origin);
+  }
+
+  function handleSetup(req, res, url) {
+    const auth = authorize(req, url);
+    if (!auth.ok) {
+      sendJson(res, auth.status, { ok: false, error: auth.error }, auth.origin);
+      return;
+    }
+    sendJson(res, 200, setupPayload({
+      port: listeningPort,
+      paired: Boolean(storedToken),
+      clients: clients.size,
+    }), auth.origin);
+  }
+
+  async function handleDaemonRpc(req, res, url) {
+    const auth = authorizeDaemon(req, url);
+    if (!auth.ok) {
+      sendJson(res, auth.status, { ok: false, error: auth.error });
+      return;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'Invalid JSON.' });
+      return;
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || (body.method !== 'tool_call' && body.method !== 'resource_read')) {
+      sendJson(res, 400, { ok: false, error: 'Expected a tool_call or resource_read request.' });
+      return;
+    }
+    if (!body.params || typeof body.params !== 'object' || Array.isArray(body.params)) {
+      sendJson(res, 400, { ok: false, error: 'Request params must be an object.' });
+      return;
+    }
+    const requested = Number(body.timeoutMs);
+    const timeout = Number.isFinite(requested)
+      ? Math.min(Math.max(Math.floor(requested), 1_000), COMPILE_TIMEOUT_MS + 5_000)
+      : REQUEST_TIMEOUT_MS;
+    try {
+      const result = await requestBrowser(body.method, body.params, timeout);
+      sendJson(res, 200, { ok: true, result });
+    } catch (error) {
+      sendJson(res, 502, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function handleShutdown(req, res, url) {
+    const auth = authorizeDaemon(req, url);
+    if (!auth.ok) {
+      sendJson(res, auth.status, { ok: false, error: auth.error });
+      return;
+    }
+    sendJson(res, 200, { ok: true });
+    setTimeout(() => {
+      Promise.resolve(close())
+        .catch(() => {})
+        .finally(() => process.exit(0));
+    }, 30).unref?.();
   }
 
   async function handler(req, res) {
@@ -454,6 +689,18 @@ function createBridge(options = {}) {
     }
     if (url.pathname === '/health' && req.method === 'GET') {
       handleHealth(req, res);
+      return;
+    }
+    if (url.pathname === '/setup' && req.method === 'GET') {
+      handleSetup(req, res, url);
+      return;
+    }
+    if (url.pathname === '/rpc' && req.method === 'POST') {
+      await handleDaemonRpc(req, res, url);
+      return;
+    }
+    if (url.pathname === '/shutdown' && req.method === 'POST') {
+      await handleShutdown(req, res, url);
       return;
     }
     if (url.pathname === '/events' && req.method === 'GET') {
@@ -522,6 +769,60 @@ function createBridge(options = {}) {
     get port() { return listeningPort; },
     get clients() { return clients.size; },
     get paired() { return Boolean(storedToken); },
+  };
+}
+
+function createProxyBridge(options) {
+  const url = options.url || daemonUrl(options.port);
+  const ensure = options.ensure;
+  let daemonToken = options.daemonToken || readDaemonTokenFile();
+
+  async function post(method, params, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs + 5_000);
+    try {
+      const res = await fetch(`${url}/rpc`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [DAEMON_TOKEN_HEADER]: daemonToken,
+        },
+        body: JSON.stringify({ method, params, timeoutMs }),
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        throw new Error(`Shared daemon returned HTTP ${res.status}.`);
+      }
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || `Shared daemon returned HTTP ${res.status}.`);
+      }
+      return payload.result;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Shared daemon did not answer within ${Math.round((timeoutMs + 5_000) / 1000)} seconds.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return {
+    async requestBrowser(method, params, timeoutMs = REQUEST_TIMEOUT_MS) {
+      try {
+        return await post(method, params, timeoutMs);
+      } catch (error) {
+        if (!ensure) throw error;
+        await ensure();
+        daemonToken = readDaemonTokenFile();
+        return post(method, params, timeoutMs);
+      }
+    },
+    async close() { /* the shared daemon outlives this stdio client */ },
   };
 }
 
@@ -742,8 +1043,8 @@ Setup (${isWindows ? 'PowerShell' : 'bash/zsh'}):
      Create and install the plugin, then mention it with @ in a chat.
 
 Notes:
-  - Do not run "npm run mcp" at the same time; tunnel-client starts the daemon.
-  - The daemon still listens on 127.0.0.1:${DEFAULT_PORT} for the open Dexter Write tab.
+  - tunnel-client starts a stdio proxy; the shared daemon is reused automatically.
+  - The shared daemon listens on 127.0.0.1:${DEFAULT_PORT} for the open Dexter Write tab.
   - Reads are immediate. Edits and inserts apply directly in Dexter Write with a local undo snapshot.
   - Secure MCP Tunnel has a 120-second request deadline, so compile calls time out after ${COMPILE_TIMEOUT_MS / 1000} seconds here.
   - If ChatGPT does not list the tunnel, verify its ChatGPT workspace association and your Tunnels Read + Use permission.
@@ -754,15 +1055,19 @@ function printHelp() {
   process.stdout.write(`dexter-mcp ${SERVER_VERSION}
 
 Usage:
-  node bin/dexter-mcp.mjs                      Start the stdio MCP server + local browser bridge
-  node bin/dexter-mcp.mjs --self-test          Run the local bridge loop test
-  node bin/dexter-mcp.mjs --print-config       Print a Claude Desktop config snippet
+  node bin/dexter-mcp.mjs                      Start a stdio proxy; reuse or start the shared daemon
+  node bin/dexter-mcp.mjs --daemon             Run the shared daemon in the foreground
+  node bin/dexter-mcp.mjs --status             Show shared daemon status
+  node bin/dexter-mcp.mjs --stop               Stop the shared daemon
+  node bin/dexter-mcp.mjs --self-test          Run the bridge and shared-daemon loop test
+  node bin/dexter-mcp.mjs --print-config       Print a client config snippet
+  node bin/dexter-mcp.mjs --print-setup        Print detected paths and client configs
   node bin/dexter-mcp.mjs --print-tunnel-setup Print ChatGPT web Secure MCP Tunnel setup
-  node bin/dexter-mcp.mjs --reset-token        Forget the paired browser token before starting
+  node bin/dexter-mcp.mjs --reset-token        Stop the daemon and forget the browser token
 
 Options:
   --port <n>                 Bridge port (default ${DEFAULT_PORT}, or DEXTER_MCP_PORT)
-  --reset-token              Delete the persisted pairing token first
+  --reset-token              Stop the daemon and delete the persisted pairing token first
 
 Capabilities:
   tools (8)                  Read, apply edits/inserts, compile, diagnostics
@@ -770,28 +1075,42 @@ Capabilities:
   prompts (3)                audit-academic-paper, tailor-resume, fix-latex-errors
   Edits apply directly and keep an undo snapshot in Dexter Write.
 
+Shared daemon:
+  One background daemon owns port ${DEFAULT_PORT}. AG, Claude, Cursor, and other
+  stdio clients attach to it, so two clients no longer fight over the port.
+  The daemon keeps running when an AI client closes. Stop it with --stop.
+
 Clients:
   Claude Desktop, Cursor     Local stdio MCP via --print-config
+  Antigravity                Local stdio MCP via the in-app Connect wizard
   ChatGPT web                Custom MCP server through OpenAI Secure MCP Tunnel
                              See --print-tunnel-setup
 
 Environment:
   DEXTER_MCP_PORT            Bridge port
-  DEXTER_MCP_TOKEN           Fixed pairing token (skips first-use pairing)
-  DEXTER_MCP_TOKEN_FILE      Pairing token file (default ~/.dexter-write/mcp-token)
+  DEXTER_MCP_TOKEN           Fixed browser pairing token
+  DEXTER_MCP_TOKEN_FILE      Browser token file (default ~/.dexter-write/mcp-token)
+  DEXTER_MCP_DAEMON_TOKEN_FILE Local client token file (default ~/.dexter-write/mcp-daemon-token)
+  DEXTER_MCP_LOG_FILE        Daemon log file (default ~/.dexter-write/mcp-daemon.log)
   DEXTER_MCP_ORIGIN          Extra comma-separated allowed browser origins
 `);
 }
 
 function printConfig() {
-  const file = fileURLToPath(import.meta.url);
+  process.stdout.write(`${JSON.stringify(clientConfigs().generic, null, 2)}\n`);
+}
+
+function printSetup() {
   process.stdout.write(`${JSON.stringify({
-    mcpServers: {
-      'dexter-write': {
-        command: 'node',
-        args: [file],
-      },
-    },
+    ok: true,
+    version: SERVER_VERSION,
+    projectDir: PROJECT_DIR,
+    scriptPath: SCRIPT_PATH,
+    nodePath: process.execPath,
+    bridgeUrl: daemonUrl(),
+    configs: clientConfigs(),
+    startCommand: 'npm run mcp:daemon',
+    stopCommand: 'npm run mcp:stop',
   }, null, 2)}\n`);
 }
 
@@ -822,12 +1141,14 @@ async function postResponse(url, token, body) {
 
 async function runSelfTest() {
   const token = `selftest_${crypto.randomUUID()}`;
-  const bridge = createBridge({ port: 0, token, persistToken: false });
+  const daemonToken = `daemon_${crypto.randomUUID()}`;
+  const bridge = createBridge({ port: 0, token, daemonToken, daemon: true, persistToken: false });
   const { url } = await bridge.listen();
   const hello = await openSse(url, token);
+  const proxy = createProxyBridge({ url, daemonToken });
   let buffer = '';
   let answered = 0;
-  const expectedAnswers = 2;
+  const expectedAnswers = 4;
   let finishAnswers;
   let answerTimer;
   const answersDone = new Promise((resolve, reject) => {
@@ -861,6 +1182,32 @@ async function runSelfTest() {
     arguments: {},
   });
   assert.equal(toolResult.content[0].text, 'tool-ok:dexter_list_project_files');
+
+  const proxiedTool = await proxy.requestBrowser('tool_call', {
+    name: 'dexter_read_active_document',
+    arguments: {},
+  });
+  assert.equal(proxiedTool.content[0].text, 'tool-ok:dexter_read_active_document');
+
+  const health = await bridgeHealth(bridge.port, 1_500);
+  assert.equal(health.daemon, true);
+  assert.equal(health.rpc, true);
+  assert.equal(health.version, SERVER_VERSION);
+
+  const setupRes = await fetch(`${url}/setup?token=${encodeURIComponent(token)}`, {
+    headers: { Origin: 'http://localhost:5173' },
+  });
+  assert.equal(setupRes.status, 200);
+  const setup = await setupRes.json();
+  assert.equal(setup.projectDir, PROJECT_DIR);
+  assert.ok(setup.configs.antigravity.mcpServers['dexter-write']);
+
+  const unauthorized = await fetch(`${url}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method: 'tool_call', params: { name: 'dexter_get_outline' } }),
+  });
+  assert.equal(unauthorized.status, 401);
 
   const initialized = await handleRpc(bridge, {
     jsonrpc: '2.0',
@@ -902,6 +1249,8 @@ async function runSelfTest() {
     params: { uri: 'dexter://document/active' },
   });
   assert.equal(read.result.contents[0].text, 'resource-ok');
+  const proxiedRead = await proxy.requestBrowser('resource_read', { uri: 'dexter://document/active' });
+  assert.equal(proxiedRead.content[0].text, 'resource-ok');
   const prompts = await handleRpc(bridge, { jsonrpc: '2.0', id: 5, method: 'prompts/list', params: {} });
   assert.equal(prompts.result.prompts.length, 3);
   const prompt = await handleRpc(bridge, {
@@ -923,6 +1272,58 @@ async function runSelfTest() {
   process.stdout.write('dexter-mcp self-test passed\n');
 }
 
+async function startDaemonForeground(port) {
+  logFile = daemonLogFilePath();
+  const token = process.env.DEXTER_MCP_TOKEN || readTokenFile();
+  const daemonToken = ensureDaemonTokenFile();
+  const bridge = createBridge({
+    port,
+    token,
+    daemonToken,
+    daemon: true,
+    persistToken: !process.env.DEXTER_MCP_TOKEN,
+  });
+  try {
+    const { url } = await bridge.listen();
+    log(`shared daemon ready; browser bridge listening on ${url}`);
+    if (token) log('Using an existing browser pairing token. Run with --reset-token to re-pair.');
+  } catch (error) {
+    if (error && error.code === 'EADDRINUSE') {
+      const existing = await bridgeHealth(port);
+      if (existing?.daemon && existing?.rpc) {
+        log(`shared daemon already running on ${daemonUrl(port)}; reusing it.`);
+        return;
+      }
+      throw new Error(`Port ${port} is in use by another process. Set DEXTER_MCP_PORT or stop that process.`);
+    }
+    throw error;
+  }
+
+  const shutdown = async (signal) => {
+    log(`stopping shared daemon (${signal}).`);
+    await bridge.close();
+    process.exit(0);
+  };
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+}
+
+async function startPrivateBridge(port, token) {
+  const bridge = createBridge({ port, token, persistToken: !process.env.DEXTER_MCP_TOKEN });
+  try {
+    const { url } = await bridge.listen();
+    log(`stdio MCP server ready; private browser bridge listening on ${url}`);
+    if (token) log('Using an existing pairing token. Run with --reset-token to re-pair.');
+    startStdio(bridge);
+  } catch (error) {
+    log(`Could not start bridge: ${error instanceof Error ? error.message : String(error)}`);
+    if (error && error.code === 'EADDRINUSE') {
+      log(`Port ${port} is in use. Run "npm run mcp:stop", close the AI client that owns it, or set DEXTER_MCP_PORT.`);
+    }
+    process.exit(1);
+  }
+}
+
 async function main() {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     printHelp();
@@ -930,6 +1331,10 @@ async function main() {
   }
   if (process.argv.includes('--print-config')) {
     printConfig();
+    return;
+  }
+  if (process.argv.includes('--print-setup')) {
+    printSetup();
     return;
   }
   if (process.argv.includes('--print-tunnel-setup')) {
@@ -941,11 +1346,6 @@ async function main() {
     return;
   }
 
-  const reset = process.argv.includes('--reset-token');
-  if (reset) {
-    try { fs.rmSync(tokenFilePath(), { force: true }); } catch { /* ignore */ }
-  }
-  const token = process.env.DEXTER_MCP_TOKEN || readTokenFile();
   const rawPort = argValue('--port') || process.env.DEXTER_MCP_PORT || String(DEFAULT_PORT);
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -953,19 +1353,62 @@ async function main() {
     process.exit(1);
   }
 
-  const bridge = createBridge({ port, token, persistToken: !process.env.DEXTER_MCP_TOKEN });
-  try {
-    const { url } = await bridge.listen();
-    log(`stdio MCP server ready; browser bridge listening on ${url}`);
-    if (token) log('Using an existing pairing token. Run with --reset-token to re-pair.');
-  } catch (error) {
-    log(`Could not start bridge: ${error instanceof Error ? error.message : String(error)}`);
-    if (error && error.code === 'EADDRINUSE') {
-      log(`Port ${port} is in use. Another dexter-mcp may already be running; stop it or set DEXTER_MCP_PORT.`);
+  if (process.argv.includes('--status')) {
+    const health = await bridgeHealth(port);
+    if (!health) {
+      log(`No shared dexter-mcp daemon is running on ${daemonUrl(port)}.`);
+      process.exitCode = 1;
+      return;
     }
-    process.exit(1);
+    process.stdout.write(`${JSON.stringify(health, null, 2)}\n`);
+    return;
   }
-  startStdio(bridge);
+
+  if (process.argv.includes('--stop')) {
+    const stopped = await stopDaemon(port);
+    if (stopped) {
+      process.stdout.write(`Stopped the shared dexter-mcp daemon on ${daemonUrl(port)}.\n`);
+    } else {
+      log(`No shared dexter-mcp daemon answered on ${daemonUrl(port)}.`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const reset = process.argv.includes('--reset-token');
+  if (reset) {
+    await stopDaemon(port);
+    try { fs.rmSync(tokenFilePath(), { force: true }); } catch { /* ignore */ }
+    log('Cleared the browser pairing token. The daemon will re-pair with the next tab.');
+  }
+
+  if (process.argv.includes('--daemon')) {
+    await startDaemonForeground(port);
+    return;
+  }
+
+  if (port === 0) {
+    await startPrivateBridge(port, process.env.DEXTER_MCP_TOKEN || readTokenFile());
+    return;
+  }
+
+  const token = process.env.DEXTER_MCP_TOKEN || readTokenFile();
+  try {
+    await ensureDaemon(port);
+    const daemonToken = readDaemonTokenFile();
+    const bridge = createProxyBridge({
+      port,
+      daemonToken,
+      ensure: () => ensureDaemon(port),
+    });
+    log(`stdio MCP proxy ready; shared daemon at ${daemonUrl(port)}`);
+    if (token) log('Using an existing pairing token. Run with --reset-token to re-pair.');
+    startStdio(bridge);
+  } catch (error) {
+    log(`Shared daemon unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    log('Falling back to a private bridge for this client.');
+    await startPrivateBridge(port, token);
+  }
 }
 
 const invokedDirectly = process.argv[1]

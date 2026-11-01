@@ -1,14 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   BRIDGE_TOKEN_KEY,
   ensureBridgeToken,
   executeBridgeResource,
   executeBridgeTool,
+  fetchBridgeHealth,
+  fetchBridgeSetup,
   formatDiagnostics,
   formatOutline,
   formatProjectFiles,
   formatReadActive,
   parseBridgeRequest,
+  startLocalBridgeDaemon,
+  stopLocalBridgeDaemon,
   type BridgeAccess,
   type BridgeDocument,
   type BridgeTokenStore,
@@ -217,5 +221,76 @@ describe('MCP bridge parsing and pairing', () => {
     expect(first).toBe(second);
     expect(first.length).toBeGreaterThanOrEqual(16);
     expect(values.get(BRIDGE_TOKEN_KEY)).toBe(first);
+  });
+});
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+describe('shared local bridge helpers', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads health from the shared daemon', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      ok: true, daemon: true, rpc: true, clients: 2, active: true,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchBridgeHealth('http://127.0.0.1:3088')).resolves.toMatchObject({
+      daemon: true,
+      clients: 2,
+      active: true,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('treats an unreachable or invalid health response as offline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('no', { status: 404 })));
+    await expect(fetchBridgeHealth('http://127.0.0.1:3088')).resolves.toBeNull();
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    await expect(fetchBridgeHealth('http://127.0.0.1:3088')).resolves.toBeNull();
+  });
+
+  it('loads setup with the browser pairing token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      ok: true,
+      projectDir: 'C:\\Project',
+      configs: { antigravity: { mcpServers: {} } },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const setup = await fetchBridgeSetup('http://127.0.0.1:3088', 'pair-token');
+    expect(setup?.projectDir).toBe('C:\\Project');
+    const url = fetchMock.mock.calls[0][0] as URL;
+    expect(url.searchParams.get('token')).toBe('pair-token');
+  });
+
+  it('starts and stops the dev daemon through the local middleware', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ ok: true, alreadyRunning: true }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(startLocalBridgeDaemon()).resolves.toMatchObject({ ok: true, alreadyRunning: true });
+    await expect(stopLocalBridgeDaemon()).resolves.toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toBe('/__dexter/mcp/start');
+    expect(fetchMock.mock.calls[1][0]).toBe('/__dexter/mcp/stop');
+  });
+
+  it('explains when dev-only daemon controls are unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<!doctype html>', {
+      status: 404,
+      headers: { 'content-type': 'text/html' },
+    })));
+
+    const result = await startLocalBridgeDaemon();
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('npm run mcp:daemon');
+    await expect(stopLocalBridgeDaemon()).resolves.toBe(false);
   });
 });

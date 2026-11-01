@@ -15,8 +15,12 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "mcp": "node bin/dexter-mcp.mjs",
+    "mcp:daemon": "node bin/dexter-mcp.mjs --daemon",
+    "mcp:stop": "node bin/dexter-mcp.mjs --stop",
+    "mcp:status": "node bin/dexter-mcp.mjs --status",
     "mcp:self-test": "node bin/dexter-mcp.mjs --self-test",
     "mcp:config": "node bin/dexter-mcp.mjs --print-config",
+    "mcp:setup": "node bin/dexter-mcp.mjs --print-setup",
     "mcp:tunnel": "node bin/dexter-mcp.mjs --print-tunnel-setup"
   },
   "dependencies": {

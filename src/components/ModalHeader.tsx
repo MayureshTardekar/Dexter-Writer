@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
+import { useEscapeClose } from '../lib/useEscapeClose';
 import Icon, { type IconName } from './icons';
 
 export default function ModalHeader({ icon, title, sub, category, onClose }: { icon: IconName; title: string; sub?: ReactNode; category?: string; onClose: () => void }) {
+  useEscapeClose(onClose);
+
   return (
     <div className="modal-head">
       <div className="modal-title">
