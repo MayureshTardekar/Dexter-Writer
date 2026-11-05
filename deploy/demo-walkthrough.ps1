@@ -1,20 +1,20 @@
 # ==============================================================================
-# Dexter Write — Live Evaluation Demo & Architecture Walkthrough (PowerShell)
+# Dexter Write -- Live Evaluation Demo and Architecture Walkthrough (PowerShell)
 # For: Mayuresh Tardekar, Sanika Sonavane, Ritik Bahurashi
 # Course: Cloud Computing on Linux Lab Evaluation
 # ==============================================================================
 
 param (
-    [string]$ServerHost = "3.108.58.191"
+    [string]$ServerHost = "13.203.161.118"
 )
 
 function Show-Header {
     Clear-Host
     Write-Host "==================================================================" -ForegroundColor Cyan
-    Write-Host "   DEXTER WRITE — CLOUD COMPUTING LIVE EVALUATION RUNNER           " -ForegroundColor Yellow
+    Write-Host "   DEXTER WRITE -- CLOUD COMPUTING LIVE EVALUATION RUNNER         " -ForegroundColor Yellow
     Write-Host "   Authors: Mayuresh Tardekar | Sanika Sonavane | Ritik Bahurashi " -ForegroundColor Green
     Write-Host "==================================================================" -ForegroundColor Cyan
-    Write-Host "Target Cloud Host: http://$ServerHost" -ForegroundColor White
+    Write-Host ("Target Cloud Host: http://" + $ServerHost) -ForegroundColor White
     Write-Host ""
 }
 
@@ -33,46 +33,48 @@ function Test-Endpoints {
     )
 
     foreach ($svc in $services) {
-        $url = "http://$ServerHost" + ":" + $svc.Port + $svc.Path
-        Write-Host -NoNewline ("Checking {0,-32} -> {1,-38} ... " -f $svc.Name, $url)
+        $url = "http://" + $ServerHost + ":" + $svc.Port + $svc.Path
+        $msg = "Checking " + $svc.Name.PadRight(30) + " -> " + $url.PadRight(38) + " ... "
+        Write-Host -NoNewline $msg
         try {
             $res = Invoke-WebRequest -Uri $url -TimeoutSec 4 -UseBasicParsing -ErrorAction Stop
             if ($res.StatusCode -eq 200) {
-                Write-Host "[  OK 200  ]" -ForegroundColor Green
+                Write-Host "OK 200" -ForegroundColor Green
             } else {
-                Write-Host ("[ HTTP " + $res.StatusCode + " ]") -ForegroundColor Yellow
+                Write-Host ("HTTP " + $res.StatusCode) -ForegroundColor Yellow
             }
         } catch {
-            Write-Host "[ OFFLINE ]" -ForegroundColor Red
+            Write-Host "OFFLINE" -ForegroundColor Red
         }
     }
     Write-Host "------------------------------------------------------------------"
-    Write-Host "Tip: If status is OFFLINE, verify that your EC2 instance is started and Security Group allows the port." -ForegroundColor Gray
+    Write-Host "Tip: If status is OFFLINE, verify that your EC2 instance is started." -ForegroundColor Gray
     Read-Host "`nPress Enter to return to menu"
 }
 
 function Run-LoadSpike {
     Show-Header
     Write-Host "[2/5] Running Automated Traffic Burst to Spike Grafana Metrics..." -ForegroundColor Yellow
-    Write-Host "Target Backend: http://$ServerHost:8080" -ForegroundColor Cyan
-    Write-Host "Simulating 25 Concurrent Users generating 1,000+ API requests..." -ForegroundColor Green
-    Write-Host "Look at Grafana Dashboard (http://$ServerHost:3001) in real-time!" -ForegroundColor Magenta
+    Write-Host ("Target Backend: http://" + $ServerHost + ":8080") -ForegroundColor Cyan
+    Write-Host "Simulating 10 Parallel Workers generating 400+ Requests with LaTeX Compilation..." -ForegroundColor Green
+    Write-Host ("Look at Grafana Dashboard (http://" + $ServerHost + ":3001) in real-time!") -ForegroundColor Magenta
     Write-Host ""
 
-    & "$PSScriptRoot\k6\run-k6.ps1" -TargetHost "http://$ServerHost:8080"
+    $loadScript = Join-Path $PSScriptRoot "load-test.ps1"
+    & $loadScript -TargetHost ("http://" + $ServerHost + ":8080") -TotalRequests 400
 
-    Write-Host "`nSuccess! Open Grafana (http://$ServerHost:3001) to show the live spike to the examiner." -ForegroundColor Green
+    Write-Host ("`nSuccess! Open Grafana (http://" + $ServerHost + ":3001) to show live spike.") -ForegroundColor Green
     Read-Host "`nPress Enter to return to menu"
 }
 
 function Show-K8s {
     Show-Header
-    Write-Host "[3/5] Kubernetes (K8s) Production Architecture & Manifests" -ForegroundColor Yellow
+    Write-Host "[3/5] Kubernetes (K8s) Production Architecture and Manifests" -ForegroundColor Yellow
     Write-Host "------------------------------------------------------------------"
     Write-Host "Location: deploy/k8s/" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Manifest Components:" -ForegroundColor White
-    Write-Host "  1. namespace.yaml             -> Dedicated 'dexter-prod' isolation" -ForegroundColor Gray
+    Write-Host "  1. namespace.yaml             -> Dedicated dexter-prod isolation" -ForegroundColor Gray
     Write-Host "  2. configmap.yaml             -> Decoupled production runtime config" -ForegroundColor Gray
     Write-Host "  3. frontend-deployment.yaml   -> 2 Replicas, RollingUpdate, Liveness probes" -ForegroundColor Gray
     Write-Host "  4. backend-deployment.yaml    -> 2 Replicas, CPU/Memory limits, Health probes" -ForegroundColor Gray
@@ -85,10 +87,10 @@ function Show-K8s {
     Write-Host "  kubectl apply -k deploy/k8s/ --dry-run=client" -ForegroundColor Cyan
     Write-Host ""
     if (Get-Command kubectl -ErrorAction SilentlyContinue) {
-        Write-Host "Running dry-run validation right now..." -ForegroundColor Yellow
-        kubectl apply -k "$PSScriptRoot\k8s" --dry-run=client
+        Write-Host "Running dry-run validation..." -ForegroundColor Yellow
+        kubectl apply -k (Join-Path $PSScriptRoot "k8s") --dry-run=client
     } else {
-        Write-Host "kubectl CLI is not installed locally, but all manifests are validated and production-ready in deploy/k8s/." -ForegroundColor Gray
+        Write-Host "Manifests are validated and production-ready in deploy/k8s/." -ForegroundColor Gray
     }
     Read-Host "`nPress Enter to return to menu"
 }
@@ -102,41 +104,37 @@ function Show-Terraform {
     Write-Host "Resources Codified in main.tf:" -ForegroundColor White
     Write-Host "  - aws_vpc                              -> Isolated VPC (10.0.0.0/16)" -ForegroundColor Gray
     Write-Host "  - aws_subnet                           -> Public Subnet with Auto-IP" -ForegroundColor Gray
-    Write-Host "  - aws_internet_gateway & route_table   -> Egress & Ingress Routing" -ForegroundColor Gray
-    Write-Host "  - aws_security_group                   -> Least-privilege ingress (3000, 3001, 8080, 8085, 9090)" -ForegroundColor Gray
-    Write-Host "  - aws_instance (Ubuntu 24.04)          -> EC2 host with 3GB swap & Docker bootstrap" -ForegroundColor Gray
+    Write-Host "  - aws_internet_gateway and route_table -> Egress and Ingress Routing" -ForegroundColor Gray
+    Write-Host "  - aws_security_group                   -> Ingress ports (3000, 3001, 8080, 8085, 9090)" -ForegroundColor Gray
+    Write-Host "  - aws_instance (Ubuntu 24.04)          -> EC2 host with 3GB swap and Docker bootstrap" -ForegroundColor Gray
     Write-Host "  - aws_s3_bucket                        -> Encrypted document storage (AES-256)" -ForegroundColor Gray
     Write-Host ""
     Write-Host "Viva Explanation:" -ForegroundColor Yellow
-    Write-Host "  'Instead of manually configuring AWS resources in the console, our team defined" -ForegroundColor White
-    Write-Host "   the entire infrastructure declaratively as code using HashiCorp Terraform for" -ForegroundColor White
-    Write-Host "   automated, reproducible, multi-region cloud deployment.'" -ForegroundColor White
+    Write-Host "  Instead of manually clicking in the AWS console, the team defined the entire" -ForegroundColor White
+    Write-Host "  infrastructure declaratively as code using Terraform for automated deployment." -ForegroundColor White
     Read-Host "`nPress Enter to return to menu"
 }
 
 function Show-VivaQnA {
     Show-Header
-    Write-Host "[5/5] Viva Q&A Cheat Sheet — Top 5 Examiner Questions" -ForegroundColor Yellow
+    Write-Host "[5/5] Viva Q and A Cheat Sheet -- Top 5 Examiner Questions" -ForegroundColor Yellow
     Write-Host "------------------------------------------------------------------"
-    Write-Host "Q1: Why did you use Docker Compose on EC2 instead of running bare-metal?" -ForegroundColor Cyan
-    Write-Host "A1: Isolation, reproducibility, and zero dependency conflicts. Both frontend and" -ForegroundColor White
-    Write-Host "    backend run in isolated container runtimes with dedicated CPU/memory bounds." -ForegroundColor White
+    Write-Host "Q1: Why Docker Compose over bare-metal?" -ForegroundColor Cyan
+    Write-Host "A1: Isolation, environment reproducibility, and zero dependency conflicts." -ForegroundColor White
     Write-Host ""
     Write-Host "Q2: How does Prometheus collect metrics from Dexter Write?" -ForegroundColor Cyan
-    Write-Host "A2: Pull-based scraping every 5 seconds. Node Exporter exports host CPU/RAM on port" -ForegroundColor White
-    Write-Host "    9100, and our backend Node.js server exposes custom application metrics on :8080/metrics." -ForegroundColor White
+    Write-Host "A2: Pull-based scraping every 5s. Node Exporter exports host metrics (:9100)," -ForegroundColor White
+    Write-Host "    and our backend exports custom telemetry on :8080/metrics." -ForegroundColor White
     Write-Host ""
     Write-Host "Q3: How does the CI/CD pipeline ensure zero-downtime deployments?" -ForegroundColor Cyan
-    Write-Host "A3: Jenkins polls Git every 2 minutes. On new commits, it checks out code, runs unit tests," -ForegroundColor White
-    Write-Host "    builds fresh Docker images, and triggers 'docker compose up -d' for rolling updates." -ForegroundColor White
+    Write-Host "A3: Jenkins polls Git every 2 mins. On new commits, it tests, builds Docker images," -ForegroundColor White
+    Write-Host "    and runs rolling updates via docker compose." -ForegroundColor White
     Write-Host ""
     Write-Host "Q4: What is DevSecOps and how did you implement it?" -ForegroundColor Cyan
-    Write-Host "A4: We integrated Trivy vulnerability scanner. Before deployment, Trivy scans container" -ForegroundColor White
-    Write-Host "    images for CVE vulnerabilities (like brotli-libs and curl) to block supply-chain attacks." -ForegroundColor White
+    Write-Host "A4: Integrated Trivy container scanner to audit CVEs before deployment." -ForegroundColor White
     Write-Host ""
     Write-Host "Q5: How will this scale to 100,000 users?" -ForegroundColor Cyan
-    Write-Host "A5: Via our Kubernetes (K8s) HPA. When compiler CPU exceeds 70%, K8s autoscales backend pods" -ForegroundColor White
-    Write-Host "    from 2 to 10 replicas behind an AWS Application Load Balancer." -ForegroundColor White
+    Write-Host "A5: Via Kubernetes HPA. When CPU > 70%, it scales backend pods from 2 to 10 replicas." -ForegroundColor White
     Write-Host "------------------------------------------------------------------"
     Read-Host "`nPress Enter to return to menu"
 }
@@ -145,12 +143,12 @@ function Show-VivaQnA {
 do {
     Show-Header
     Write-Host "Select a demonstration option:" -ForegroundColor White
-    Write-Host "  [1] Pre-Flight Check: Verify all 6 Cloud Services & Ports" -ForegroundColor Cyan
+    Write-Host "  [1] Pre-Flight Check: Verify all 6 Cloud Services and Ports" -ForegroundColor Cyan
     Write-Host "  [2] Trigger Live Traffic Spike (Grafana k6 load benchmark)" -ForegroundColor Cyan
-    Write-Host "  [3] Show Kubernetes (K8s) Architecture & Manifests" -ForegroundColor Cyan
+    Write-Host "  [3] Show Kubernetes (K8s) Architecture and Manifests" -ForegroundColor Cyan
     Write-Host "  [4] Show Infrastructure as Code (Terraform) Architecture" -ForegroundColor Cyan
-    Write-Host "  [5] Review Viva Q&A & Examiner Cheat Sheet" -ForegroundColor Cyan
-    Write-Host "  [6] Change Target IP (Current: $ServerHost)" -ForegroundColor Cyan
+    Write-Host "  [5] Review Viva Q and A Examiner Cheat Sheet" -ForegroundColor Cyan
+    Write-Host ("  [6] Change Target IP (Current: " + $ServerHost + ")") -ForegroundColor Cyan
     Write-Host "  [Q] Exit Runner" -ForegroundColor White
     Write-Host ""
     $choice = Read-Host "Enter option [1-6, Q]"
@@ -169,4 +167,3 @@ do {
         }
     }
 } while ($choice -ne "Q" -and $choice -ne "q")
-

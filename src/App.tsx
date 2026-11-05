@@ -6,6 +6,7 @@ import CloudPanel from './components/CloudPanel';
 import { ProjectContext, compileLatexProject, compileTypstProject, type ProjectRuntime } from './lib/projectRuntime';
 import { listAssets, storeAsset, removeAsset, prepareAsset, imageSnippet, type ProjectAsset, type ImageOptions } from './lib/assets';
 import { projectPath, resolveProjectPath, relativeProjectPath } from './lib/projectPaths';
+import { createId } from './lib/uuid';
 import { documentReferences, validateProject } from './lib/validateProject';
 import type { ImportedProject } from './lib/importProject';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -115,7 +116,7 @@ export default function App() {
   const [model, setModel] = useState(() => localStorage.getItem('dexter-write:model') || '');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem('dexter-write:baseUrl') || 'http://localhost:11434/v1');
   const [apiKey, setApiKey] = useState('');
-  const [projectId] = useState(() => { const existing = localStorage.getItem('dexter-write:project-id'); if (existing) return existing; const id = crypto.randomUUID(); localStorage.setItem('dexter-write:project-id', id); return id; });
+  const [projectId] = useState(() => { const existing = localStorage.getItem('dexter-write:project-id'); if (existing) return existing; const id = createId(); localStorage.setItem('dexter-write:project-id', id); return id; });
   const [cloudProjectId, setCloudProjectId] = useState(() => {
     try { return localStorage.getItem(LS_CLOUD_PROJECT) || ''; } catch { return ''; }
   });

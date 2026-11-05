@@ -5,7 +5,7 @@
 # Course: Cloud Computing on Linux Lab Evaluation
 # ==============================================================================
 
-SERVER_HOST="${1:-3.108.58.191}"
+SERVER_HOST="${1:-13.203.161.118}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 show_header() {

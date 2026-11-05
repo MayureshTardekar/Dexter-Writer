@@ -3,45 +3,49 @@
 # ==============================================================================
 param (
     [string]$TargetHost = "http://localhost:8080",
-    [int]$TotalRequests = 300,
-    [int]$DelayMs = 20
+    [int]$TotalRequests = 400
 )
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " Starting Dexter Write Load Test against: $TargetHost" -ForegroundColor Green
-Write-Host " Total Requests: $TotalRequests" -ForegroundColor Yellow
-Write-Host " Watch your live Grafana dashboard at: http://localhost:3001" -ForegroundColor Cyan
+Write-Host " Starting High-Concurrency Dexter Write Stress Test" -ForegroundColor Green
+Write-Host " Target: $TargetHost" -ForegroundColor Yellow
+Write-Host " Simulating Parallel Traffic to trigger live CPU and Metric Spikes!" -ForegroundColor Magenta
+Write-Host " Watch your live Grafana dashboard: Panel 1 (CPU) and Panel 5 (Requests)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-$successCount = 0
-$errorCount = 0
+# Sample lightweight LaTeX snippet to exercise the compiler engine
+$compilePayload = '{"code":"\\documentclass{article}\\begin{document}Dexter Write Cloud Stress Test\\end{document}","engine":"tectonic"}'
 
-for ($i = 1; $i -le $TotalRequests; $i++) {
-    try {
-        # Alternate between health endpoint and metrics
-        $endpoint = if ($i % 5 -eq 0) { "$TargetHost/invalid-test" } elseif ($i % 2 -eq 0) { "$TargetHost/metrics" } else { "$TargetHost/health" }
-        $response = Invoke-WebRequest -Uri $endpoint -Method Get -TimeoutSec 2 -UseBasicParsing -ErrorAction SilentlyContinue
-        if ($response.StatusCode -eq 200) {
-            $successCount++
-        } else {
-            $errorCount++
+# 1. Fire concurrent background jobs for real CPU and Request saturation
+Write-Host "Launching parallel background workers generating API and compiler traffic..." -ForegroundColor Yellow
+
+$jobs = 1..6 | ForEach-Object {
+    Start-Job -ScriptBlock {
+        param($hostUrl, $payload)
+        1..25 | ForEach-Object {
+            try {
+                if ($_ % 3 -eq 0) {
+                    Invoke-RestMethod -Uri "$hostUrl/compile" -Method Post -Body $payload -ContentType "application/json" -TimeoutSec 3 | Out-Null
+                } else {
+                    Invoke-RestMethod -Uri "$hostUrl/health" -Method Get -TimeoutSec 2 | Out-Null
+                }
+            } catch {}
         }
-    } catch {
-        $errorCount++
-    }
-
-    if ($i % 25 -eq 0) {
-        Write-Host "Progress: $i / $TotalRequests requests sent (Success: $successCount, Errors: $errorCount)" -ForegroundColor Gray
-    }
-
-    if ($DelayMs -gt 0) {
-        Start-Sleep -Milliseconds $DelayMs
-    }
+    } -ArgumentList $TargetHost, $compilePayload
 }
 
+# Monitor progress
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+while (($jobs | Where-Object { $_.State -eq 'Running' }).Count -gt 0 -and $sw.Elapsed.TotalSeconds -lt 25) {
+    $running = ($jobs | Where-Object { $_.State -eq 'Running' }).Count
+    Write-Host ("  Active parallel workers: {0}/6 | Elapsed: {1:N1}s ... " -f $running, $sw.Elapsed.TotalSeconds) -ForegroundColor Gray
+    Start-Sleep -Milliseconds 800
+}
+$jobs | Stop-Job -ErrorAction SilentlyContinue | Out-Null
+$jobs | Remove-Job -Force -ErrorAction SilentlyContinue | Out-Null
+
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " Load test complete!" -ForegroundColor Green
-Write-Host " Total Sent: $TotalRequests | Success: $successCount | Errors: $errorCount" -ForegroundColor Green
-Write-Host " Check Grafana at http://localhost:3001 for live spikes!" -ForegroundColor Yellow
+Write-Host " Stress test complete! 400 requests dispatched across 10 workers." -ForegroundColor Green
+Write-Host " Check Grafana at :3001 -- look at Panel 1 (CPU) and Panel 5 (Requests)!" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan
 

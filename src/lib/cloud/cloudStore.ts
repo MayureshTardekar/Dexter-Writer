@@ -1,6 +1,7 @@
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import type { ProjectAsset } from '../assets';
 import { modeForName, type ProjectFile } from '../projectFiles';
+import { createId } from '../uuid';
 import { assertTextSize, projectFileToRow, rowToProjectFile, type CloudFileRow } from './mapping';
 import { requireSupabase, supabase } from './supabase';
 
@@ -362,7 +363,7 @@ export async function loadProject(
       continue;
     }
     assets.push({
-      id: crypto.randomUUID(),
+      id: createId(),
       projectId: localProjectId,
       path: row.path,
       name: row.name,
