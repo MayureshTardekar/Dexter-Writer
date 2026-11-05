@@ -39,7 +39,7 @@ pipeline {
             steps {
                 echo "Verifying docker-compose configuration..."
                 sh '''
-                    docker compose config
+                    docker compose config --quiet
                 '''
             }
         }
@@ -48,10 +48,27 @@ pipeline {
             steps {
                 echo "Deploying microservices on AWS EC2..."
                 sh '''
-                    docker compose up -d --remove-orphans
-                    sleep 5
-                    curl -fs http://localhost:8080/health || exit 1
-                    echo "Deployment verified successfully!"
+                    # Fixed container_name values clash with containers started manually
+                    # (or by an older run) -> remove only the app containers first.
+                    docker rm -f dexter-frontend dexter-backend 2>/dev/null || true
+
+                    # Redeploy only the app services. Prometheus/Grafana keep running untouched
+                    # (their bind mounts don't resolve from inside the Jenkins container).
+                    docker compose up -d --build --no-deps frontend backend
+
+                    # Health check from INSIDE the backend container: 'localhost' in Jenkins
+                    # is the Jenkins container itself, not the host.
+                    for i in $(seq 1 12); do
+                        if docker exec dexter-backend curl -fs http://localhost:8080/health; then
+                            echo ""
+                            echo "Deployment verified successfully!"
+                            exit 0
+                        fi
+                        echo "Waiting for backend to become healthy ($i/12)..."
+                        sleep 5
+                    done
+                    docker logs --tail 50 dexter-backend
+                    exit 1
                 '''
             }
         }

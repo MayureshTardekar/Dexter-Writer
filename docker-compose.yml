@@ -1,6 +1,8 @@
 # ==============================================================================
 # Dexter Write — Cloud Native Microservices Stack (EC2 & Local Dev)
 # ==============================================================================
+name: dexterwrite
+
 services:
   # 1. Frontend (Vite SPA + Nginx Reverse Proxy)
   frontend:
