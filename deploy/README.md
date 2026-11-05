@@ -136,3 +136,68 @@ Watch the Grafana graphs at `http://localhost:3001` immediately spike and respon
    docker compose up -d --build
    ```
 
+---
+
+## 7. Kubernetes (K8s) Production Architecture & Autoscaling
+
+Located in `deploy/k8s/`:
+- **Namespace (`namespace.yaml`):** Isolated production environment `dexter-prod`.
+- **Deployments:** Replicated frontend and backend pods with RollingUpdate, Liveness/Readiness probes, and CPU/memory limits.
+- **Horizontal Pod Autoscaler (`hpa.yaml`):** Dynamically scales LaTeX compiler pods between 2 and 10 replicas when CPU utilization exceeds 70%.
+- **Validation Command:**
+  ```bash
+  kubectl apply -k deploy/k8s/ --dry-run=client
+  ```
+
+---
+
+## 8. Infrastructure as Code (Terraform)
+
+Located in `deploy/terraform/`:
+- Declaratively provisions AWS VPC, Subnet, Route Tables, Internet Gateway, Security Groups, EC2 Host (`t3.micro`), and encrypted S3 Bucket (`AES-256`).
+- **Commands:**
+  ```bash
+  cd deploy/terraform
+  terraform init
+  terraform plan
+  terraform apply -auto-approve
+  ```
+
+---
+
+## 9. Performance Benchmarking with Grafana k6
+
+Located in `deploy/k6/`:
+- High-concurrency performance benchmark script simulating 25 Virtual Users under ramping traffic profiles.
+- Validates 95th-percentile response time under 500ms and failure rate under 5%.
+- **Run command:**
+  ```powershell
+  .\deploy\k6\run-k6.ps1 -TargetHost "http://<EC2-IP>:8080"
+  ```
+
+---
+
+## 10. DevSecOps: Trivy Container Vulnerability Gate
+
+Container vulnerability auditing integrated to block known CVEs in production images:
+```bash
+./scan.sh
+# Or direct command:
+trivy image dexter-frontend:latest
+```
+
+---
+
+## 11. 1-Click Live Evaluation Demo Runner
+
+An interactive runner that guides evaluators through live endpoint checks, automated traffic spikes, and architecture manifests:
+```powershell
+.\deploy\demo-walkthrough.ps1 -ServerHost "<EC2-IP>"
+```
+Or on Linux / EC2:
+```bash
+chmod +x ./deploy/demo-walkthrough.sh
+./deploy/demo-walkthrough.sh "<EC2-IP>"
+```
+
+
