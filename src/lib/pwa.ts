@@ -7,8 +7,7 @@ export function registerServiceWorker(): void {
 
   // Register on window load to avoid competing with initial page render resources
   window.addEventListener('load', () => {
-    // Resolve relative path so it functions under any base URL (e.g. GitHub Pages)
-    const swUrl = './sw.js';
+    const swUrl = `${import.meta.env.BASE_URL}sw.js`;
 
     navigator.serviceWorker
       .register(swUrl)

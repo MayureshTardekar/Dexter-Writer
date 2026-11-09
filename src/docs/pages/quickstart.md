@@ -20,18 +20,19 @@ Open the local URL printed by Vite, usually `http://localhost:5173`. The first l
 
 ## 2. Create or import a document
 
-Choose one of these options in the project hub:
+Open **Project → New, import, or browse templates** to create or import documents.
 
 1. **Create a document** — pick a name and a format: Markdown, LaTeX, or Typst.
 2. **New from template** — start from a resume, paper, or technical documentation template.
 3. **Import files** — bring in Markdown, LaTeX, Typst, text, ZIP, PDF text, DOCX text, or images. You review every file before it is imported.
-4. **GitHub import** — clone a repository and import its text files.
+
+Use **Settings → GitHub sync** to clone a repository and import its text files.
 
 The editor autosaves to browser storage. Use **Project → Download backup ZIP** before a large import or a destructive change.
 
 ## 3. Write and preview
 
-- Use the **MD**, **LaTeX**, and **Typst** buttons in the toolbar to match the active document.
+- Use the **Document format** selector beside the active filename to switch between Markdown, LaTeX, and Typst.
 - Markdown supports GitHub-flavored tables, task lists, KaTeX math, and Mermaid diagrams.
 - LaTeX and Typst show compile diagnostics in the preview pane.
 - Press **Ctrl/Cmd + Enter** to recompile when focus is outside an input.
@@ -39,13 +40,13 @@ The editor autosaves to browser storage. Use **Project → Download backup ZIP**
 
 ## 4. Connect AI (optional)
 
-Open the **AI** activity in the left rail, choose a provider, and paste your API key. Keys are stored in an AES-GCM encrypted browser vault and sent directly to the provider.
+Open **Settings → Models and API keys** to choose a provider, select a model, and save your API key. Keys are stored in an AES-GCM encrypted browser vault and sent directly to the provider.
 
 ```text
-AI panel → Provider → Model → Paste key → Save
+Settings → Models and API keys → Provider → Model → Save
 ```
 
-Try a small request first:
+Open **Assistant** and try a small request.
 
 ```text
 Tighten the introduction and keep the citations unchanged.
@@ -55,7 +56,7 @@ Review the proposed change in diff mode before applying it. Every applied AI act
 
 ## 5. Connect a local agent (optional)
 
-Keep the app open, open **MCP → Connect an AI writer**, and click **Start local bridge**. Choose Claude Desktop, Cursor, Antigravity, or another stdio-capable client and copy its config from the wizard.
+Keep the app open, open **Settings → Connections → Local bridge**, and click **Start local bridge**. Choose Claude Desktop, Cursor, Antigravity, or another stdio-capable client and copy its config from the wizard.
 
 If you are using the hosted Vercel app, double-click **Start Dexter Bridge.cmd** in the project folder first; the hosted page cannot start local processes by itself.
 

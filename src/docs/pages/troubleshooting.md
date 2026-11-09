@@ -52,7 +52,7 @@ Ask it to call `dexter_read_project_file` and show the current content. If the a
 
 ## Remote MCP returns 401 or 403
 
-- Sign in to the Cloud panel.
+- Sign in through **Settings → Cloud sync**.
 - Confirm your GitHub username is in `allowed_users`.
 - Complete the OAuth consent flow in the client.
 - Confirm the function is deployed and its environment is set.
@@ -64,7 +64,7 @@ A 401 is usually authentication. A 403 is usually authorization or the allowlist
 
 - Confirm the project is linked in the Cloud panel.
 - Keep the tab open long enough for the poll interval.
-- Check **Cloud → Recent MCP edits** for the revision.
+- Check **Settings → Cloud sync → MCP edits and undo** for the revision.
 - If the local file has changes, the app preserves it and reports a conflict.
 - Use **Load** from the cloud project if you want the cloud copy to win.
 

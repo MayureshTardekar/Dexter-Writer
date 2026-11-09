@@ -35,7 +35,7 @@ Templates are starting points, not locked formats. Edit the content and structur
 
 ## GitHub sync
 
-Open **GitHub** from the activity rail. The panel supports both a fine-grained personal access token and the GitHub device flow.
+Open **Settings → GitHub sync**. The panel supports a fine-grained personal access token and the GitHub device flow.
 
 ### Connect
 

@@ -30,6 +30,7 @@ interface Props {
   mode: DocMode;
   theme: 'dark' | 'light';
   onChange: (v: string) => void;
+  onReady?: () => void;
   onSelection: (text: string, startLine: number, endLine: number) => void;
   editorRef: MutableRefObject<unknown>;
   /** When set, the editor binds to the shared Y.Text (uncontrolled mode). */
@@ -38,7 +39,7 @@ interface Props {
   ai?: EditorAiSettings;
 }
 
-export default function EditorPane({ value, mode, theme, onChange, onSelection, editorRef, collab, ai }: Props) {
+export default function EditorPane({ value, mode, theme, onChange, onReady, onSelection, editorRef, collab, ai }: Props) {
   const bindingRef = useRef<{ destroy: () => void } | null>(null);
   const inlineEditRef = useRef<{ dispose: () => void } | null>(null);
   const goneRef = useRef(false);
@@ -153,6 +154,7 @@ export default function EditorPane({ value, mode, theme, onChange, onSelection, 
         };
       });
     } catch { /* inline edit is best-effort */ }
+    onReady?.();
   };
 
   const common: Pick<EditorProps, 'theme' | 'onMount' | 'beforeMount' | 'options'> = {

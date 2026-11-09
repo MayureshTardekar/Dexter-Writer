@@ -1,4 +1,5 @@
 import { projectPath, relativeProjectPath } from './projectPaths';
+import { createId } from './uuid';
 import type { DocMode } from './templates';
 
 export interface ProjectAsset {
@@ -56,7 +57,7 @@ export async function prepareAsset(file: File, projectId: string, existing: Arra
       name = name.replace(/\.webp$/i, '') + '.png';
     }
     const path = uniqueAssetPath(existing, name, requestedPath !== undefined);
-    return { id: crypto.randomUUID(), projectId, path, name: path.split('/').at(-1)!, mime: blob.type, size: blob.size, width: bitmap.width, height: bitmap.height, blob, createdAt: Date.now(), updatedAt: Date.now() };
+    return { id: createId(), projectId, path, name: path.split('/').at(-1)!, mime: blob.type, size: blob.size, width: bitmap.width, height: bitmap.height, blob, createdAt: Date.now(), updatedAt: Date.now() };
   } finally { bitmap.close(); }
 }
 export interface ImageOptions { alt: string; caption: string; width: number; align: 'left' | 'center' | 'right' }

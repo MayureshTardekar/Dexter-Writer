@@ -81,7 +81,7 @@ function utf8Bytes(value: string): number {
 
 function assertTextSize(path: string, content: string): void {
   if (utf8Bytes(content) > MAX_TEXT_BYTES) {
-    throw new Error(`${path} is larger than 2 MB. Split the file before staging it.`);
+    throw new Error(`${path} is larger than 2 MB. Split the file before editing it.`);
   }
 }
 
@@ -93,7 +93,7 @@ async function resolveProject(db: Db, projectId?: string): Promise<ProjectRef> {
       .eq('id', projectId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) throw new Error('That cloud project was not found.');
+    if (!data) throw new Error('That cloud project is unavailable to this connection.');
     return data as ProjectRef;
   }
   const { data, error } = await db
@@ -103,7 +103,7 @@ async function resolveProject(db: Db, projectId?: string): Promise<ProjectRef> {
     .limit(1);
   if (error) throw new Error(error.message);
   const project = (data ?? [])[0] as ProjectRef | undefined;
-  if (!project) throw new Error('No cloud project exists yet. Import a project from Dexter Write first.');
+  if (!project) throw new Error('No cloud project is authorized. Reconnect from your AI client and choose a project.');
   return project;
 }
 
@@ -191,14 +191,14 @@ async function finishCompile(db: Db, jobId: string, patch: Record<string, unknow
     .eq('id', jobId);
 }
 
-function buildServer(db: Db, admin: Db, userId: string): McpServer {
+function buildServer(db: Db, admin: Db, userId: string, canEdit: boolean): McpServer {
   const server = new McpServer({ name: 'dexter-write', version: '0.1.0' });
 
   server.registerTool(
     'dexter_list_projects',
     {
       title: 'List Dexter Write projects',
-      description: 'List the cloud writing projects available to the signed-in GitHub user. The newest project is the default when a tool omits project_id.',
+      description: 'List the project authorized for this connection and whether file editing is enabled.',
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () => {
@@ -208,7 +208,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
         .select('id,name,active_path,updated_at')
         .order('updated_at', { ascending: false });
       if (error) return fail(error.message);
-      return json(data ?? []);
+      return json((data ?? []).map((project) => ({ ...project, can_edit: canEdit })));
     },
   );
 
@@ -218,7 +218,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
       title: 'List files in a project',
       description: 'List every text file in a project with its path, syntax mode, and current version. Call this before editing so the next edit uses the right base_version.',
       inputSchema: z.object({
-        project_id: z.string().uuid().optional().describe('Project id. Omit to use the most recently updated project.'),
+        project_id: z.string().uuid().optional().describe('Project id. Omit to use the project authorized for this connection.'),
       }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -562,7 +562,7 @@ function buildServer(db: Db, admin: Db, userId: string): McpServer {
       const objectPath = `${userId}/${project.id}/_builds/${jobId}.pdf`;
       const { error: uploadError } = await db.storage
         .from('project-assets')
-        .upload(objectPath, pdf, { upsert: true, contentType: 'application/pdf' });
+        .upload(objectPath, pdf, { contentType: 'application/pdf' });
       if (uploadError) {
         await finishCompile(db, jobId, { status: 'error', error: uploadError.message.slice(0, 4000) });
         return fail(`Compiled, but storing the PDF failed: ${uploadError.message}`);
@@ -655,8 +655,19 @@ Deno.serve(
         return Response.json({ error: 'This GitHub account is not on the Dexter Write allowlist.' }, { status: 403 });
       }
 
+      const { data: grant, error: grantError } = await supabase.rpc('current_mcp_project').maybeSingle();
+      if (grantError) {
+        return Response.json({ error: 'Could not verify the Dexter Write project grant.' }, { status: 500 });
+      }
+      if (!grant) {
+        return Response.json({
+          error: 'No active project access. Remove the existing connection in Dexter Write > Connections, then authorize again from your AI client.',
+        }, { status: 403 });
+      }
+
       try {
-        const handler = createMcpHandler(() => buildServer(supabase as Db, supabaseAdmin as Db, userClaims.id));
+        const { can_edit } = grant as { can_edit: boolean };
+        const handler = createMcpHandler(() => buildServer(supabase as Db, supabaseAdmin as Db, userClaims.id, can_edit));
         return await handler.fetch(req);
       } catch (error) {
         return Response.json({ error: errorText(error) }, { status: 500 });

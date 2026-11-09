@@ -2,7 +2,7 @@ Dexter Write exposes a standard MCP server, so any client that supports local st
 
 ## Easiest path: in-app Connect wizard
 
-Open **MCP → Connect an AI writer**, click **Start local bridge**, choose your client, and copy the
+Open **Settings → Connections → Local bridge**, click **Start local bridge**, choose your client, and copy the
 generated config. The wizard detects the project folder and absolute script path for you.
 
 The shared daemon is independent of any one client. Antigravity, Claude Desktop, and Cursor can connect
@@ -110,7 +110,7 @@ Use the command and arguments from `npm run mcp:config`. The transport is stdio.
 
 ## Remote clients
 
-Use the Cloud panel's **Remote MCP endpoint** after deploying Supabase and importing a project.
+Use **Copy connector URL** in **Settings → Connections → Cloud project** after deploying Supabase and importing a project.
 
 ```text
 https://<project-ref>.supabase.co/functions/v1/mcp

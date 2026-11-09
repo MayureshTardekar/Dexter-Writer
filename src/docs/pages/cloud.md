@@ -2,7 +2,7 @@ Cloud sync stores a copy of a project in your own Supabase project. It enables r
 
 ## Why use cloud sync
 
-- An agent can read and edit the project while the Dexter Write tab is closed.
+- An authorized agent can read the project while the tab is closed. File edits require a separate opt-in.
 - A project can be loaded on another device.
 - Applied MCP edits have a server-side revision trail.
 - Cloud assets and compile output can live beside the project files.
@@ -12,7 +12,7 @@ Dexter Write is still local-first. The browser project remains the working copy 
 ## Setup
 
 1. Create a Supabase project.
-2. Apply the database migrations, including `0001_init.sql` and `0002_direct_ai_edits.sql`.
+2. Apply the migrations in `supabase/migrations`, including `0003_connector_grants.sql`.
 3. Enable GitHub authentication.
 4. Add your GitHub username to `allowed_users`.
 5. Configure the OAuth consent route.
@@ -27,7 +27,7 @@ supabase functions deploy mcp
 
 ## Sign in and allowlist
 
-Open **Cloud** from the activity rail. Sign in with GitHub. The panel shows whether your username is allowed.
+Open **Settings → Cloud sync** and sign in with GitHub. The panel shows whether your username is allowed.
 
 The allowlist is deliberate: the free tier should not be burned by strangers. It is checked during sign-in and again by the backend on every protected request.
 
@@ -67,9 +67,9 @@ While the tab is open, Dexter Write polls file metadata in the background:
 
 This is how a remote MCP edit reaches the open editor without a manual refresh.
 
-## Recent MCP edits
+## MCP edits and undo
 
-The Cloud panel lists recent AI revisions with:
+The **MCP edits and undo** section lists recent AI revisions with the following details.
 
 - File path
 - Project

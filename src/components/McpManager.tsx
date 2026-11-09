@@ -11,15 +11,14 @@ import type { BridgeStatus } from '../lib/mcp/bridgeClient';
 import { askConfirm } from '../lib/dialog';
 import { toast } from '../lib/toast';
 import McpConnectWizard from './McpConnectWizard';
-import ModalHeader from './ModalHeader';
 
-interface Props {
+export interface McpManagerProps {
+  section: 'local' | 'custom';
   servers: ExternalMcpServer[];
   setServers: (s: ExternalMcpServer[]) => void;
   bridgeEnabled: boolean;
   bridgeStatus: BridgeStatus;
   onToggleBridge: () => void;
-  onClose: () => void;
 }
 
 const PRESETS: Array<{ label: string; name: string; url: string; transport: McpTransport; hint?: string }> = [
@@ -47,13 +46,13 @@ const PRESETS: Array<{ label: string; name: string; url: string; transport: McpT
 
 /** External MCP servers plus the one-click local AI writer connection. */
 export default function McpManager({
+  section,
   servers,
   setServers,
   bridgeEnabled,
   bridgeStatus,
   onToggleBridge,
-  onClose,
-}: Props) {
+}: McpManagerProps) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [transport, setTransport] = useState<McpTransport>('http');
@@ -111,125 +110,116 @@ export default function McpManager({
     setServers(servers.filter((s) => s.id !== id));
   }
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal xl" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="MCP server manager">
-        <ModalHeader
-          icon="plug"
-          title="MCP Connections"
-          category="AI Tools"
-          sub="Connect a local AI writer through one shared bridge, or add outbound MCP servers. External tool calls ask permission first unless set to always-allow."
-          onClose={onClose}
+  if (section === 'local') {
+    return (
+      <div className="mcp-server">
+        <McpConnectWizard
+          bridgeEnabled={bridgeEnabled}
+          bridgeStatus={bridgeStatus}
+          onToggleBridge={onToggleBridge}
         />
-        <div className="modal-body">
-          <div className="mcp-server" style={{ marginBottom: 14 }}>
-            <McpConnectWizard
-              bridgeEnabled={bridgeEnabled}
-              bridgeStatus={bridgeStatus}
-              onToggleBridge={onToggleBridge}
-            />
-            <details className="muted small" style={{ marginTop: 12 }}>
-              <summary>Advanced: manual commands and ChatGPT web</summary>
-              <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
-                The shared daemon owns <code>127.0.0.1:3088</code>. The Connect wizard is the normal path;
-                these commands are only for debugging or self-hosting.
-              </p>
-              <pre className="cloud-code">{`npm run mcp:daemon   # start the shared daemon
-npm run mcp:status   # health and connected tabs
-npm run mcp:stop     # stop the shared daemon
-npm run mcp:config   # print a client config
-npm run mcp:tunnel   # ChatGPT web tunnel setup`}</pre>
-              <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
-                ChatGPT web can use this bridge through OpenAI&apos;s Secure MCP Tunnel without exposing
-                port 3088. Run <code>npm run mcp:tunnel</code> for the full setup. Custom MCP servers in ChatGPT
-                depend on your plan, workspace, and permissions.
-              </p>
-            </details>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0 0' }}>
-            <span className="muted small">Quick presets:</span>
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                className="btn xs"
-                onClick={() => {
-                  setName(preset.name);
-                  setUrl(preset.url);
-                  setTransport(preset.transport);
-                  if (preset.hint) toast(preset.hint, 'info', 4200);
-                }}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="mcp-add">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. GitHub MCP)" aria-label="Server name" />
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/mcp  or  https://…/sse" aria-label="Server URL" />
-          <select value={transport} onChange={(e) => setTransport(e.target.value as McpTransport)} aria-label="Transport">
-            <option value="http">HTTP</option>
-            <option value="sse">SSE</option>
-          </select>
-          <button className="btn primary" onClick={add}>Add</button>
-        </div>
-        <div className="mcp-list">
-          {servers.length === 0 && <div className="mcp-empty muted">No servers yet. Add one above — try a GitHub or web-search MCP endpoint.</div>}
-          {servers.map((s) => (
-            <div key={s.id} className="mcp-server">
-              <div className="mcp-head">
-                <label className="switch">
-                  <input type="checkbox" checked={s.enabled} onChange={(e) => update(s.id, { enabled: e.target.checked })} />
-                </label>
-                <strong>{s.name}</strong>
-                <span className={`dot ${s.status}`}>{s.status}</span>
-                <span className="muted small mcp-url">{s.transport.toUpperCase()} · {s.url}</span>
-                <span className="spacer" />
-                <button className="btn xs" disabled={busy === s.id} onClick={() => connect(s.id)}>
-                  {busy === s.id ? 'Connecting…' : s.status === 'connected' ? 'Refresh' : 'Connect'}
-                </button>
-                <button className="btn xs danger" onClick={() => { void askConfirm({ title: `Remove ${s.name}?`, message: 'This deletes the saved endpoint and its cached tool list. You can add it again later.', confirmLabel: 'Remove server', danger: true }).then((ok) => { if (ok) remove(s.id); }); }}>Remove</button>
-              </div>
-              {s.lastError && <div className="mcp-error">{s.lastError}</div>}
-              {s.tools.length > 0 && (
-                <div className="mcp-tools">
-                  {s.tools.map((t) => (
-                    <div key={t.name} className="mcp-tool">
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={t.enabled}
-                          onChange={(e) => update(s.id, { tools: s.tools.map((x) => (x.name === t.name ? { ...x, enabled: e.target.checked } : x)) })}
-                        />
-                      </label>
-                      <code>{t.name}</code>
-                      <span className="muted small tool-desc" title={t.description}>{(t.description || '').slice(0, 120)}</span>
-                      <span className="spacer" />
-                      <button
-                        className="btn xs ghost"
-                        title="Always allow this tool without prompting"
-                        onClick={() => { setStoredPermission(s.id, t.name, 'allow-always'); }}
-                      >
-                        Always allow
-                      </button>
-                      <button
-                        className="btn xs ghost"
-                        title="Reset permission to prompt every time"
-                        onClick={() => { setStoredPermission(s.id, t.name, null); }}
-                      >
-                        Prompt
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          </div>
-          <div className="modal-foot">
-            <button className="btn" onClick={onClose}>Close</button>
-          </div>
-        </div>
+        <p className="muted small">
+          Local MCP edits apply immediately. You can undo them from the edit notice or document history.
+        </p>
+        <details className="muted small">
+          <summary>Advanced setup</summary>
+          <pre className="cloud-code">{[
+            'npm run mcp:daemon   # Start the shared daemon',
+            'npm run mcp:status   # Check health and connected tabs',
+            'npm run mcp:stop     # Stop the shared daemon',
+            'npm run mcp:config   # Print a client configuration',
+            'npm run mcp:tunnel   # Print the ChatGPT web tunnel setup',
+          ].join('\n')}</pre>
+          <p>The daemon listens on <code>127.0.0.1:3088</code>. The Secure MCP Tunnel can connect it to ChatGPT web without opening a public port.</p>
+        </details>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <p className="muted small">
+        Add a remote MCP server for the Dexter Assistant. Each tool asks for permission before use unless you always allow it.
+      </p>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0 0' }}>
+        <span className="muted small">Quick presets:</span>
+        {PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            className="btn xs"
+            onClick={() => {
+              setName(preset.name);
+              setUrl(preset.url);
+              setTransport(preset.transport);
+              if (preset.hint) toast(preset.hint, 'info', 4200);
+            }}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <div className="mcp-add">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. GitHub MCP)" aria-label="Server name" />
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/mcp  or  https://…/sse" aria-label="Server URL" />
+        <select value={transport} onChange={(e) => setTransport(e.target.value as McpTransport)} aria-label="Transport">
+          <option value="http">HTTP</option>
+          <option value="sse">SSE</option>
+        </select>
+        <button className="btn primary" onClick={add}>Add</button>
+      </div>
+      <div className="mcp-list">
+        {servers.length === 0 && <div className="mcp-empty muted">No servers yet. Add one above — try a GitHub or web-search MCP endpoint.</div>}
+        {servers.map((s) => (
+          <div key={s.id} className="mcp-server">
+            <div className="mcp-head">
+              <label className="switch">
+                <input type="checkbox" checked={s.enabled} onChange={(e) => update(s.id, { enabled: e.target.checked })} />
+              </label>
+              <strong>{s.name}</strong>
+              <span className={`dot ${s.status}`}>{s.status}</span>
+              <span className="muted small mcp-url">{s.transport.toUpperCase()} · {s.url}</span>
+              <span className="spacer" />
+              <button className="btn xs" disabled={busy === s.id} onClick={() => connect(s.id)}>
+                {busy === s.id ? 'Connecting…' : s.status === 'connected' ? 'Refresh' : 'Connect'}
+              </button>
+              <button className="btn xs danger" onClick={() => { void askConfirm({ title: `Remove ${s.name}?`, message: 'This deletes the saved endpoint and its cached tool list. You can add it again later.', confirmLabel: 'Remove server', danger: true }).then((ok) => { if (ok) remove(s.id); }); }}>Remove</button>
+            </div>
+            {s.lastError && <div className="mcp-error">{s.lastError}</div>}
+            {s.tools.length > 0 && (
+              <div className="mcp-tools">
+                {s.tools.map((t) => (
+                  <div key={t.name} className="mcp-tool">
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={t.enabled}
+                        onChange={(e) => update(s.id, { tools: s.tools.map((x) => (x.name === t.name ? { ...x, enabled: e.target.checked } : x)) })}
+                      />
+                    </label>
+                    <code>{t.name}</code>
+                    <span className="muted small tool-desc" title={t.description}>{(t.description || '').slice(0, 120)}</span>
+                    <span className="spacer" />
+                    <button
+                      className="btn xs ghost"
+                      title="Always allow this tool without prompting"
+                      onClick={() => { setStoredPermission(s.id, t.name, 'allow-always'); }}
+                    >
+                      Always allow
+                    </button>
+                    <button
+                      className="btn xs ghost"
+                      title="Reset permission to prompt every time"
+                      onClick={() => { setStoredPermission(s.id, t.name, null); }}
+                    >
+                      Prompt
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

@@ -14,7 +14,7 @@ Switch preview engines with the active document mode. The toolbar format buttons
 
 **Local browser compile** is the default when the engine is available. The first run downloads roughly 120 MB of compiler assets, then caches them. This keeps source on the device.
 
-**Cloud compiler** is configured in **Project → LaTeX compiler location**. The current project source and referenced files are sent to that address during compilation. This is useful on low-memory devices or when you do not want a large local download.
+Configure the **cloud compiler** in **Settings → Workspace → LaTeX compiler**. The current project source and referenced files are sent to that address during compilation. This is useful on low-memory devices or when you want to avoid a large local download.
 
 Compile diagnostics appear in the preview pane. Use **Fix with AI** to send the failure and nearby source to the AI pane.
 

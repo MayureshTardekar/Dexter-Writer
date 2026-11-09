@@ -29,7 +29,7 @@ Open the app and load the project the agent should work on. The bridge only sees
 
 ### 2. Open MCP → Connect an AI writer
 
-Open **MCP** from the activity rail or the status bar. The Connect wizard detects the project folder,
+Open **Settings → Connections → Local bridge**. The Connect wizard detects the project folder,
 starts the shared local bridge, and prepares a config for Antigravity, Claude Desktop, Cursor, or another
 MCP client.
 

@@ -1,11 +1,11 @@
-Remote MCP lets Claude, ChatGPT, or another MCP client work on a **cloud project** even when the Dexter Write tab is closed. The MCP server is a Supabase Edge Function; the project lives in Postgres and Storage.
+Remote MCP lets a compatible AI client work on an authorized **cloud project** even when the Dexter Write tab is closed. The MCP server is a Supabase Edge Function, and the project lives in Postgres and Storage.
 
 This is optional. The local bridge is simpler and needs no account.
 
 ## What you need
 
 - A Supabase project on the free tier.
-- The repository migrations applied, including `0001_init.sql` and `0002_direct_ai_edits.sql`.
+- The repository migrations applied, including `0003_connector_grants.sql`.
 - The `mcp` Edge Function deployed.
 - GitHub OAuth configured in Supabase Auth.
 - The frontend built with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
@@ -27,7 +27,7 @@ The direct-edit migration adds:
 - `apply_ai_edit(...)` for version-checked writes and revision snapshots
 - `restore_cloud_revision(...)` for Undo
 
-Without `0002_direct_ai_edits.sql`, the remote edit tools cannot apply changes.
+The connector grants migration restricts each OAuth client to the approved project and enforces the edit opt-in.
 
 ## Configure the frontend
 
@@ -43,11 +43,10 @@ The anon key is public by design. Row-level security and the allowlist protect e
 
 ## Connect the cloud project
 
-1. Open **Cloud** in Dexter Write.
-2. Sign in with GitHub.
-3. Confirm your username appears as allowed.
-4. Import the current project, or load an existing cloud project.
-5. Copy the **Remote MCP endpoint** shown in the Cloud panel.
+1. Open **Settings → Cloud sync** and sign in with GitHub.
+2. Confirm your username appears as allowed.
+3. Import the current project, or load an existing cloud project.
+4. Open **Settings → Connections → Cloud project** and select **Copy connector URL**.
 
 The endpoint has this shape:
 
@@ -57,11 +56,11 @@ https://<project-ref>.supabase.co/functions/v1/mcp
 
 Add it to your MCP client as a remote Streamable HTTP server. In Antigravity the field is `serverUrl`; in Claude and ChatGPT use the custom connector flow.
 
-OAuth discovery and dynamic client registration are handled by Supabase. Your client may open a consent screen on first connection.
+Supabase handles OAuth discovery and dynamic client registration. On consent, choose one cloud project. Access starts read-only. Select **Allow edits to project files** to enable writes. Manage or revoke the grant in **Settings → Connections**.
 
 ## What the remote agent can do
 
-Remote tools include project listing, file reading, project search, apply edit, create file, recent edits, compile, and compile-status tools. Reads work against the cloud copy. Writes apply immediately after a version check.
+Remote tools can list, read, search, and compile files in the approved cloud project. With editing enabled, file changes apply immediately after a version check.
 
 The editor does not need to be open for an agent to work on the cloud project.
 
@@ -78,7 +77,7 @@ If you see a conflict, either load the cloud project again or push the local ver
 
 ## Recent MCP edits and Undo
 
-Every applied remote edit creates an AI revision with the previous content. Open **Cloud → Recent MCP edits** to see the path, project, version, time, and summary.
+Every applied remote edit creates an AI revision with the previous content. Open **Settings → Cloud sync → MCP edits and undo** to see the path, project, version, time, and summary.
 
 Select **Undo** to restore that revision. The restore itself creates a new revision, so the history remains append-only. A created file can be undone as well; the creation is removed.
 
@@ -99,8 +98,8 @@ Remote edits send a base version. If another writer or agent changed the file fi
 
 - Authentication is OAuth through Supabase.
 - The allowlist is checked again on every request.
-- Row-level security scopes projects, files, revisions, and assets.
+- Row-level security scopes each OAuth connection to its approved project.
 - Remote edits are version-checked.
-- Revision restore is available only to an authenticated project owner on the allowlist.
+- Revision restore requires the project owner’s direct Dexter Write session.
 
 See [Security and privacy](/docs#security) for the full model.

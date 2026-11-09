@@ -1,6 +1,7 @@
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import type { ProjectAsset } from '../assets';
 import { modeForName, type ProjectFile } from '../projectFiles';
+import { createId } from '../uuid';
 import { assertTextSize, projectFileToRow, rowToProjectFile, type CloudFileRow } from './mapping';
 import { requireSupabase, supabase } from './supabase';
 
@@ -17,6 +18,22 @@ export interface CloudProject {
   name: string;
   activePath: string | null;
   updatedAt: string;
+}
+
+export interface McpConnection {
+  clientId: string;
+  name: string;
+  scopes: string[];
+  grantedAt: string | null;
+  projectId: string | null;
+  canEdit: boolean;
+}
+
+export interface McpProjectGrant {
+  clientId: string;
+  projectId: string;
+  canEdit: boolean;
+  authorizationId: string;
 }
 
 export interface CloudProjectBundle {
@@ -235,6 +252,95 @@ export async function listCloudProjects(): Promise<CloudProject[]> {
   }));
 }
 
+export async function prepareMcpProjectGrant(grant: McpProjectGrant): Promise<void> {
+  const { data, error } = await requireSupabase().rpc('prepare_mcp_project_grant', {
+    p_client_id: grant.clientId,
+    p_project_id: grant.projectId,
+    p_can_edit: grant.canEdit,
+    p_authorization_id: grant.authorizationId,
+  });
+  if (error) throw new Error(error.message);
+  if (data !== true) throw new Error('This client already has a connection or a pending request. Remove it in Connections and start again.');
+}
+
+export async function activateMcpProjectGrant(authorizationId: string): Promise<string | null> {
+  const { data, error } = await requireSupabase().rpc('activate_mcp_project_grant', {
+    p_authorization_id: authorizationId,
+  }).maybeSingle<{ redirect_uri: string; authorization_code: string; oauth_state: string | null }>();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+
+  const redirect = new URL(data.redirect_uri);
+  if (redirect.protocol !== 'https:' && redirect.protocol !== 'http:') {
+    throw new Error('Use a client with an HTTP or HTTPS redirect URL.');
+  }
+  redirect.searchParams.set('code', data.authorization_code);
+  if (data.oauth_state) redirect.searchParams.set('state', data.oauth_state);
+  return redirect.href;
+}
+
+export async function discardPendingMcpGrant(clientId: string, authorizationId: string): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('mcp_project_grants')
+    .delete()
+    .eq('client_id', clientId)
+    .eq('pending_authorization_id', authorizationId);
+  if (error) throw new Error(error.message);
+}
+
+export async function listMcpConnections(): Promise<McpConnection[]> {
+  const db = requireSupabase();
+  const [oauth, grants] = await Promise.all([
+    db.auth.oauth.listGrants(),
+    db.from('mcp_project_grants').select('client_id,project_id,can_edit,activated_at'),
+  ]);
+  if (oauth.error) throw new Error(oauth.error.message);
+  if (grants.error) throw new Error(grants.error.message);
+
+  const byClient = new Map((grants.data ?? []).map((grant) => [grant.client_id, grant]));
+  const connections = (oauth.data ?? []).map((authorization): McpConnection => {
+    const { client } = authorization;
+    const grant = byClient.get(client.id);
+    byClient.delete(client.id);
+    return {
+      clientId: client.id,
+      name: client.name || 'Unnamed AI client',
+      scopes: authorization.scopes,
+      grantedAt: authorization.granted_at,
+      projectId: grant?.activated_at ? grant.project_id : null,
+      canEdit: Boolean(grant?.activated_at && grant.can_edit),
+    };
+  });
+
+  for (const clientId of byClient.keys()) {
+    connections.push({ clientId, name: 'Unfinished connection', scopes: [], grantedAt: null, projectId: null, canEdit: false });
+  }
+  return connections;
+}
+
+export async function setMcpConnectionCanEdit(clientId: string, projectId: string, canEdit: boolean): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('mcp_project_grants')
+    .update({ can_edit: canEdit, updated_at: new Date().toISOString() })
+    .eq('client_id', clientId)
+    .eq('project_id', projectId)
+    .not('activated_at', 'is', null)
+    .select('client_id')
+    .single();
+  if (error) throw new Error(error.message);
+}
+
+export async function revokeMcpConnection(connection: McpConnection): Promise<void> {
+  const db = requireSupabase();
+  // Deny existing access tokens before asking Auth to revoke consent and refresh tokens.
+  const removed = await db.from('mcp_project_grants').delete().eq('client_id', connection.clientId);
+  if (removed.error) throw new Error(removed.error.message);
+  if (connection.grantedAt) {
+    const revoked = await db.auth.oauth.revokeGrant({ clientId: connection.clientId });
+    if (revoked.error) throw new Error(`Project access was removed. OAuth revocation failed: ${revoked.error.message}. Retry revocation before reconnecting.`);
+  }
+}
+
 async function uploadAssets(db: SupabaseClient, userId: string, projectId: string, assets: ProjectAsset[]): Promise<void> {
   for (const asset of assets) {
     if (asset.size > 50 * 1024 * 1024) throw new Error(`${asset.path} is larger than 50 MB.`);
@@ -362,7 +468,7 @@ export async function loadProject(
       continue;
     }
     assets.push({
-      id: crypto.randomUUID(),
+      id: createId(),
       projectId: localProjectId,
       path: row.path,
       name: row.name,

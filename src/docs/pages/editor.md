@@ -15,7 +15,7 @@ paper/
   references.bib
 ```
 
-Use the file tree to select, rename, create, or delete files. The outline panel follows the active document and lets you jump to headings and sections.
+Use the file tree to select, rename, create, or delete files. **Files → Outline** follows the active document and lets you jump to headings and sections. Use **Files → References** to manage citations.
 
 ## Choose the right format
 
@@ -54,7 +54,7 @@ Inline math uses `$...$` and display math uses `$$...$$`. Mermaid blocks render 
 LaTeX mode provides syntax highlighting, structure navigation, compile diagnostics, and inverse search where supported.
 
 - The local compiler runs in the browser after a one-time engine download of roughly 120 MB.
-- A cloud compiler URL can be configured in **Project → LaTeX compiler location**.
+- A cloud compiler URL can be configured in **Settings → Workspace → LaTeX compiler**.
 - Compile errors appear in the preview pane; use **Fix with AI** to send the failure and surrounding source to the AI pane.
 - Referenced project files and images are passed to the compiler with the document.
 
@@ -73,13 +73,13 @@ AI and MCP changes also create snapshots:
 - The toolbar **Undo AI** action reverses the most recent applied AI action.
 - **History** shows saved document versions and AI snapshots.
 - Local MCP applies changes immediately and shows an inline notice with Undo.
-- Cloud MCP edits appear in **Cloud → Recent MCP edits** with a per-revision Undo.
+- Cloud MCP edits appear in **Settings → Cloud sync → MCP edits and undo** with a per-revision Undo.
 
 Undo is blocked if the target file changed after the AI action, so a newer manual edit is never silently overwritten.
 
 ## Images and attachments
 
-Open **Images and attachments** from the activity rail or project hub. Uploaded images are stored with the project and can be inserted into Markdown, LaTeX, or Typst.
+Open **Files → Images and attachments**. Uploaded images are stored with the project and can be inserted into Markdown, LaTeX, or Typst.
 
 Images do not travel through a live session automatically. Share a project ZIP with collaborators if they need the image files.
 

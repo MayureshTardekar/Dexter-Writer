@@ -35,7 +35,7 @@ The local MCP server is a separate process launched by your MCP client. Treat th
 
 ## Remote MCP and cloud
 
-Remote MCP uses Supabase Auth, OAuth discovery, and dynamic client registration. The backend checks the allowlist and runs with row-level security.
+Remote MCP uses Supabase Auth, OAuth discovery, and dynamic client registration. Identity scopes describe account information. Dexter Write separately enforces the approved project and edit permissions in the database.
 
 Cloud data is stored in your Supabase project:
 

@@ -1,7 +1,9 @@
 // Dexter Write — Offline Service Worker
 // Enables 100% offline document editing, Monaco workers, and KaTeX fonts.
 
-const CACHE_NAME = 'dexter-write-v2';
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
+const CACHE_PREFIX = `dexter-write:${SCOPE_PATH}:`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
 
 const STATIC_SHELL_ASSETS = [
   './',
@@ -31,7 +33,9 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) =>
         Promise.all(
           cacheNames
-            .filter((name) => name !== CACHE_NAME)
+            .filter((name) => name !== CACHE_NAME && (
+              name.startsWith(CACHE_PREFIX) || name === 'dexter-write-v1' || name === 'dexter-write-v2'
+            ))
             .map((name) => caches.delete(name)),
         ),
       )
@@ -49,19 +53,24 @@ self.addEventListener('fetch', (event) => {
   }
 
   const url = new URL(request.url);
-
-  // Never intercept loopback bridge, SSE event streams, or third-party APIs
+  const inScope = url.origin === self.location.origin && url.pathname.startsWith(SCOPE_PATH);
+  const appPath = inScope ? url.pathname.slice(SCOPE_PATH.length) : '';
+  const isStaticCdn = url.hostname === 'cdn.jsdelivr.net';
+  // Keep OAuth, cloud data, and local bridge requests out of the offline cache.
   if (
-    url.hostname === '127.0.0.1' ||
-    url.hostname === 'localhost' ||
-    url.pathname === '/events' ||
-    (url.origin !== self.location.origin && !url.hostname.includes('cdn.jsdelivr.net'))
-  ) {
-    return;
-  }
+    request.headers.has('Authorization') ||
+    (!inScope && !isStaticCdn) ||
+    appPath.startsWith('oauth/') ||
+    appPath.startsWith('api/') ||
+    appPath.startsWith('__dexter/mcp/') ||
+    appPath === 'events' ||
+    request.headers.get('Accept')?.includes('text/event-stream') ||
+    url.searchParams.has('code') ||
+    url.searchParams.has('authorization_id')
+  ) return;
 
   // Strategy 1: HTML Navigations -> Network-first with cache fallback
-  if (request.mode === 'navigate') {
+  if (request.mode === 'navigate' && inScope) {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
@@ -83,12 +92,13 @@ self.addEventListener('fetch', (event) => {
 
   // Strategy 2: Static assets (JS chunks, CSS, fonts, SVG, WASM) -> Cache-first with background revalidation
   const isStaticAsset =
-    url.pathname.includes('/assets/') ||
+    appPath.startsWith('assets/') ||
+    appPath.startsWith('core/busytex/') ||
     url.pathname.endsWith('.wasm') ||
     url.pathname.endsWith('.svg') ||
     url.pathname.endsWith('.woff2') ||
     url.pathname.endsWith('.ttf') ||
-    url.hostname.includes('cdn.jsdelivr.net');
+    isStaticCdn;
 
   if (isStaticAsset) {
     event.respondWith(
@@ -117,23 +127,5 @@ self.addEventListener('fetch', (event) => {
         });
       }),
     );
-    return;
   }
-
-  // Strategy 3: Default -> Stale-while-revalidate
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const fetchPromise = fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cached || Response.error());
-
-      return cached || fetchPromise;
-    }),
-  );
 });

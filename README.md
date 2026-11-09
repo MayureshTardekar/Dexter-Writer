@@ -40,7 +40,7 @@ The AI doesn't just chat—**it directly inspects, patches, and typesets your do
 
 ### 2. 🤖 Native MCP (Model Context Protocol) Integration
 - **In-Browser Virtual MCP Server**: The active document buffer is exposed to the AI as a native MCP server (`read_document`, `replace_lines`, `insert_text`, `get_outline`).
-- **Desktop MCP Bridge**: Run `npm run mcp` and register `bin/dexter-mcp.mjs` in Claude Desktop or Cursor (`npm run mcp:config` prints the JSON). External agents can read any project file, stage exact-string edits and inserts for review, compile LaTeX/Typst, and read diagnostics.
+- **Desktop MCP Bridge** uses one shared daemon. Open **Settings → Connections → Local bridge** for setup, or run `npm run mcp:config` for a client configuration. Local edits apply immediately and can be undone in Dexter Write.
 - **ChatGPT Web via Secure MCP Tunnel**: Connect the same bridge to `chatgpt.com` as a custom MCP server through OpenAI's outbound-only tunnel. Run `npm run mcp:tunnel` for exact commands; no public port is opened.
 - **External MCP Client**: Connect external MCP servers (such as GitHub, Web Search, or local repos) over SSE/HTTP to inject real code, commit logs, and citations into your documentation or resume.
 
@@ -51,9 +51,9 @@ ChatGPT web can reach the local bridge without exposing `127.0.0.1:3088` to the 
 1. Install [OpenAI `tunnel-client`](https://github.com/openai/tunnel-client/releases/latest).
 2. Create a tunnel and runtime API key in [Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels), then associate the tunnel with your ChatGPT workspace.
 3. Run `npm run mcp:tunnel` and execute the printed `tunnel-client init` command with your tunnel ID.
-4. Start it with `tunnel-client run --profile dexter-write`. This starts the Dexter Write MCP daemon, so do not also run `npm run mcp`.
+4. Start it with `tunnel-client run --profile dexter-write`. The tunnel process connects to the shared Dexter Write daemon.
 5. At `chatgpt.com/plugins`, add a custom MCP server with `Connection: Tunnel`, select the tunnel, and choose `No authentication`.
-6. Keep Dexter Write open with the bridge enabled. Reads run immediately; edits and inserts are staged for review.
+6. Keep Dexter Write open with the bridge enabled. Edits and inserts apply immediately and can be undone in Dexter Write.
 
 Custom MCP server access in ChatGPT depends on your plan, workspace, and permissions. The tunnel is outbound-only and the daemon still accepts browser connections only from local Dexter Write origins.
 
@@ -102,7 +102,7 @@ Custom MCP server access in ChatGPT depends on your plan, workspace, and permiss
  │                                                                       │
  │  [Local Desktop MCP Bridge]                                           │
  │  - node bin/dexter-mcp.mjs (stdio <-> localhost SSE)                  │
- │  - Read, stage, compile, diagnostics, resources, prompts              │
+ │  - Read, edit, compile, diagnostics, resources, prompts               │
  │                                                                       │
  │  [External MCP Client]                                                │
  │  - Connects to SSE / HTTP MCP endpoints (GitHub, Web Search, etc.)    │
@@ -119,20 +119,13 @@ Custom MCP server access in ChatGPT depends on your plan, workspace, and permiss
 
 ---
 
-## 🐳 Self-Hosting with Docker
+## 🚀 Deployment
 
-You can self-host Dexter Write on any VPS, home server, or local machine using Docker:
+The production frontend is deployed on **Vercel** from the `main` branch. Vercel runs `npm run build`, serves `dist`, and applies the SPA rewrites in `vercel.json` so routes like `/oauth/consent` resolve correctly.
 
-```bash
-# Clone the repository
-git clone https://github.com/MayureshTardekar/Dexter-Writer.git
-cd Dexter-Writer
+Supabase provides authentication, cloud sync, and the hosted MCP function. The optional LaTeX compiler in `lambda/` can be deployed separately as an AWS Lambda function.
 
-# Start using Docker Compose
-docker compose up -d
-```
-
-Open your browser at `http://localhost:3000`. The multi-stage Nginx container will serve the app with full client-side WASM, PWA offline caching, and sub-second load times.
+The [in-app documentation](https://dexter-writer.vercel.app/docs) includes the workspace and cloud setup guides.
 
 ---
 
@@ -163,13 +156,12 @@ Dexter Write features a built-in Service Worker (`public/sw.js`). Once loaded, a
 
 ---
 
-## 🧭 Documentation Directory
+## 🧭 Project Structure
 
-For in-depth technical documentation, please refer to:
-- 📐 [**ARCHITECTURE.md**](./ARCHITECTURE.md) — Comprehensive technical architecture, data flows, and security model.
-- 📋 [**PRODUCT_SPEC.md**](./PRODUCT_SPEC.md) — Complete product requirements, feature specifications, and Overleaf parity checklist.
-- 🔌 [**MCP_SPEC.md**](./MCP_SPEC.md) — Model Context Protocol specifications, tool schemas, and external server bridging.
-- 🗺️ [**ROADMAP.md**](./ROADMAP.md) — Development milestones from MVP to v2.0 collaborative cloud platform.
+- `src/` — React application, editor, AI tools, and cloud/MCP logic.
+- `supabase/` — database migrations, RLS policies, and Edge Functions.
+- `lambda/` — optional serverless LaTeX compiler.
+- `tests/` — unit and browser tests.
 
 ---
 
