@@ -119,20 +119,11 @@ Custom MCP server access in ChatGPT depends on your plan, workspace, and permiss
 
 ---
 
-## 🐳 Self-Hosting with Docker
+## 🚀 Deployment
 
-You can self-host Dexter Write on any VPS, home server, or local machine using Docker:
+The production frontend is deployed on **Vercel** from the `main` branch. Vercel runs `npm run build`, serves `dist`, and applies the SPA rewrites in `vercel.json` so routes like `/oauth/consent` resolve correctly.
 
-```bash
-# Clone the repository
-git clone https://github.com/MayureshTardekar/Dexter-Writer.git
-cd Dexter-Writer
-
-# Start using Docker Compose
-docker compose up -d
-```
-
-Open your browser at `http://localhost:3000`. The multi-stage Nginx container will serve the app with full client-side WASM, PWA offline caching, and sub-second load times.
+Supabase provides authentication, cloud sync, and the hosted MCP function. The optional LaTeX compiler in `lambda/` can be deployed separately as an AWS Lambda function.
 
 ---
 
@@ -163,13 +154,12 @@ Dexter Write features a built-in Service Worker (`public/sw.js`). Once loaded, a
 
 ---
 
-## 🧭 Documentation Directory
+## 🧭 Project Structure
 
-For in-depth technical documentation, please refer to:
-- 📐 [**ARCHITECTURE.md**](./ARCHITECTURE.md) — Comprehensive technical architecture, data flows, and security model.
-- 📋 [**PRODUCT_SPEC.md**](./PRODUCT_SPEC.md) — Complete product requirements, feature specifications, and Overleaf parity checklist.
-- 🔌 [**MCP_SPEC.md**](./MCP_SPEC.md) — Model Context Protocol specifications, tool schemas, and external server bridging.
-- 🗺️ [**ROADMAP.md**](./ROADMAP.md) — Development milestones from MVP to v2.0 collaborative cloud platform.
+- `src/` — React application, editor, AI tools, and cloud/MCP logic.
+- `supabase/` — database migrations, RLS policies, and Edge Functions.
+- `lambda/` — optional serverless LaTeX compiler.
+- `tests/` — unit and browser tests.
 
 ---
 

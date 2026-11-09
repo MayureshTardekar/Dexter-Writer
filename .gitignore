@@ -64,10 +64,21 @@ ARCHITECTURE.md
 PRODUCT_SPEC.md
 ROADMAP.md
 MCP_SPEC.md
+UI-Upgrade.md
+mcp-plan.md
+INTERVIEW_PREP.md
 scratch*.md
 notes.md
 todo.md
 *.private.md
+
+# Supabase local state
+supabase/.temp/
+supabase/.branches/
+
+# Local-only helpers / scratch
+Supabase Login.cmd
+test_mcp_call.mjs
 
 # Local validation scratch
 .tmp-vitest/
