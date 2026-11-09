@@ -109,7 +109,8 @@ test('Connections owns hosted setup, advanced paths and permission management', 
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.goto('/');
-  await page.getByRole('button', { name: 'Connections', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('region', { name: 'Settings' }).getByRole('button', { name: 'Connections', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Connections' });
   await expect(dialog.getByRole('heading', { name: 'Connect an AI client' })).toBeVisible();
   await expect(dialog.getByText('Read only', { exact: true })).toBeVisible();

@@ -160,7 +160,7 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Cloud sync">
+      <div className="modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Cloud sync">
         <ModalHeader
           icon="cloud"
           title="Cloud sync"

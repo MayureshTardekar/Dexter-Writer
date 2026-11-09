@@ -136,12 +136,12 @@ export default function ReviewAgentModal({
         className="modal xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="Autonomous Document Review Agent"
-        style={{ width: '840px', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
+        aria-modal="true"
+        aria-label="Review document"
       >
         <ModalHeader
           icon="fileText"
-          title="Autonomous Document Review Agent"
+          title="Review document"
           sub={`Multi-step quality, ATS, and formula audit for ${fileName}`}
           onClose={onClose}
         />

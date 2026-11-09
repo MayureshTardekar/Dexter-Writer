@@ -782,8 +782,8 @@ export default function AiPlayground({
           <Icon name="history" size={13} /> <span className="btn-label optional">Recents</span>
         </button>
         {onOpenReview && (
-          <button className="btn xs ghost" onClick={onOpenReview} title="Autonomous Document Review Agent">
-            <Icon name="sparkles" size={13} /> <span className="btn-label optional">Audit</span>
+          <button type="button" className="btn xs ghost" onClick={onOpenReview} aria-label="Review document">
+            <Icon name="fileText" size={13} /> Review document
           </button>
         )}
       </div>

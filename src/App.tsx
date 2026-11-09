@@ -27,6 +27,8 @@ import CommandPalette, { type PaletteAction } from './components/CommandPalette'
 import Toasts from './components/Toasts';
 import DialogHost from './components/DialogHost';
 import ModalHeader from './components/ModalHeader';
+import ToolbarMenu from './components/ToolbarMenu';
+import WorkspaceSettings from './components/WorkspaceSettings';
 import Icon from './components/icons';
 import { toast } from './lib/toast';
 import { askConfirm, askPrompt } from './lib/dialog';
@@ -102,6 +104,14 @@ import type { RepoDoc } from './lib/github';
 
 const LS_THEME = 'dexter-write:theme';
 const LS_CLOUD_PROJECT = 'dexter-write:cloud-project-id';
+const COMPACT_LAYOUT = '(max-width: 920px)';
+const FILE_VIEWS = [
+  { id: 'files', label: 'Files' },
+  { id: 'outline', label: 'Outline' },
+  { id: 'references', label: 'References' },
+] as const;
+type FileView = typeof FILE_VIEWS[number]['id'];
+type SidebarTab = FileView | 'ai' | 'settings';
 
 function newAiActionId(): string {
   return `ai_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -130,6 +140,10 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     return localStorage.getItem('dexter-write:started') !== '1' && !params.has('cloud-sync') && !params.has('connections');
   });
+  const closeHub = useCallback(() => {
+    setShowHub(false);
+    try { localStorage.setItem('dexter-write:started', '1'); } catch { /* save state reports project failures */ }
+  }, []);
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saving');
   const [saveError, setSaveError] = useState('');
   const [validationStatus, setValidationStatus] = useState('Draft');
@@ -191,26 +205,20 @@ export default function App() {
       return [];
     }
   });
-  type SidebarTab = 'files' | 'ai' | 'outline' | null;
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(() => {
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab | null>(() => {
     try {
       const raw = localStorage.getItem('dexter-write:sidebar-tab');
-      return raw === 'files' || raw === 'ai' || raw === 'outline' ? raw : 'files';
+      return raw === 'ai' || raw === 'outline' || raw === 'references' || raw === 'settings' ? raw : 'files';
     } catch {
       return 'files';
     }
   });
-
-  const toggleSidebar = useCallback((tab: 'files' | 'ai' | 'outline') => {
-    setSidebarTab((curr) => {
-      const next = curr === tab ? null : tab;
-      try {
-        if (next) localStorage.setItem('dexter-write:sidebar-tab', next);
-        else localStorage.removeItem('dexter-write:sidebar-tab');
-      } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
+  useEffect(() => {
+    try {
+      if (sidebarTab) localStorage.setItem('dexter-write:sidebar-tab', sidebarTab);
+      else localStorage.removeItem('dexter-write:sidebar-tab');
+    } catch { /* ignore */ }
+  }, [sidebarTab]);
 
   const [recompileSeq, setRecompileSeq] = useState(0);
   const triggerRecompile = useCallback(() => {
@@ -261,6 +269,18 @@ export default function App() {
   }, [leftPct, rightPct, hidden, maximized]);
 
   const isVisible = (id: PaneId) => (maximized ? maximized === id : id === 'center' ? true : !hidden[id]);
+  const [compactLayout, setCompactLayout] = useState(() => window.matchMedia(COMPACT_LAYOUT).matches);
+  useEffect(() => {
+    const query = window.matchMedia(COMPACT_LAYOUT);
+    const update = () => setCompactLayout(query.matches);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  const [mobileView, setMobileView] = useState<'chat' | 'editor' | 'preview'>(() =>
+    maximized === 'left' ? 'chat' : maximized === 'right' ? 'preview' : 'editor',
+  );
+  const sidebarOpen = sidebarTab !== null && isVisible('left') && (!compactLayout || mobileView === 'chat');
+  const filesOpen = sidebarOpen && sidebarTab !== 'ai' && sidebarTab !== 'settings';
 
   function syncMobileView(id: PaneId) {
     setMobileView(id === 'left' ? 'chat' : id === 'right' ? 'preview' : 'editor');
@@ -298,18 +318,20 @@ export default function App() {
     applyPreset(view);
   }
 
-  function openToolPanel(tab: 'files' | 'ai' | 'outline') {
-    const opening = sidebarTab !== tab;
-    toggleSidebar(tab);
-    if (opening) {
-      if (window.matchMedia('(max-width: 920px)').matches) applyPreset('chat');
-      else setHidden((h) => ({ ...h, left: false }));
-    } else if (mobileView === 'chat') {
-      setMaximized('center');
-      setMobileView('editor');
-    }
+  const showSidebar = useCallback((tab: SidebarTab) => {
+    setSidebarTab(tab);
+    setHidden((current) => current.left ? { ...current, left: false } : current);
+    setMaximized((current) => compactLayout || current === 'left' ? 'left' : null);
+    setMobileView('chat');
+  }, [compactLayout]);
+
+  function hideSidebar() {
+    setSidebarTab(null);
+    setMaximized((current) => current === 'left' ? (compactLayout ? 'center' : null) : current);
+    setMobileView('editor');
   }
   const [selection, setSelection] = useState<SelectionCtx | null>(null);
+  const pendingSourceLine = useRef<number | null>(null);
   const [servers, setServersState] = useState<ExternalMcpServer[]>(() => loadServers());
   const [newName, setNewName] = useState('');
   const [newMode, setNewMode] = useState<DocMode>('markdown');
@@ -320,8 +342,12 @@ export default function App() {
   const [showLive, setShowLive] = useState(false);
   const [peers, setPeers] = useState<CollabPeer[]>([]);
   const [livePrefill, setLivePrefill] = useState({ room: '', password: '' });
+  const openShare = useCallback(() => {
+    setLivePrefill({ room: '', password: '' });
+    setLiveError(null);
+    setShowLive(true);
+  }, []);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [mobileView, setMobileView] = useState<'chat' | 'editor' | 'preview'>('editor');
   const [pendingImport, setPendingImport] = useState<RepoDoc[] | null>(null);
   const [online, setOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
 
@@ -614,6 +640,7 @@ export default function App() {
 
   const closeTop = useCallback(() => {
     if (pendingImport) setPendingImport(null);
+    else if (showReview) setShowReview(false);
     else if (showCitations) setShowCitations(false);
     else if (showHistory) setShowHistory(false);
     else if (showShortcuts) setShowShortcuts(false);
@@ -622,8 +649,10 @@ export default function App() {
     else if (connectionPanel) closeConnectionPanel();
     else if (showByok) setShowByok(false);
     else if (aiFixProposal) setAiFixProposal(null);
+    else if (showAssets) setShowAssets(false);
+    else if (showHub) closeHub();
     else if (paletteOpen) setPaletteOpen(false);
-  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, connectionPanel, closeConnectionPanel, showByok, aiFixProposal, paletteOpen]);
+  }, [pendingImport, showReview, showCitations, showHistory, showShortcuts, showGithub, showLive, connectionPanel, closeConnectionPanel, showByok, aiFixProposal, showAssets, showHub, closeHub, paletteOpen]);
 
   // Global shortcuts: palette, save-guard, Esc-to-close.
   useEffect(() => {
@@ -631,6 +660,7 @@ export default function App() {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault();
+        if (!paletteOpen && [...document.querySelectorAll('.modal-backdrop [role="dialog"]')].some((dialog) => dialog.getClientRects().length)) return;
         setPaletteOpen((v) => !v);
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -638,7 +668,7 @@ export default function App() {
       } else if (mod && e.key === 'Enter') {
         e.preventDefault();
         triggerRecompile();
-      } else if (e.key === 'Escape' && !paletteOpen) {
+      } else if (e.key === 'Escape' && !paletteOpen && !e.defaultPrevented) {
         closeTop();
       }
     };
@@ -648,7 +678,6 @@ export default function App() {
 
   const stats = useMemo(() => getDocStats(docContent), [docContent]);
   const outline = useMemo(() => getDocumentOutline(docContent, docMode), [docContent, docMode]);
-  const connectedCount = useMemo(() => servers.filter((s) => s.enabled && s.status === 'connected').length, [servers]);
 
   const setServers = useCallback((s: ExternalMcpServer[]) => {
     setServersState(s);
@@ -1067,7 +1096,6 @@ export default function App() {
     );
   }
 
-  function closeHub() { setShowHub(false); try { localStorage.setItem('dexter-write:started', '1'); } catch { /* save state reports project failures */ } }
   function createDocument(name: string, mode: DocMode, content: string) {
     const final = uniqueName(filesRef.current, projectPath(name));
     if (assets.some((a) => a.path === final)) throw new Error('This path belongs to an image; choose a document filename.');
@@ -1401,10 +1429,25 @@ export default function App() {
     } catch { /* noop */ }
   }
 
+  function openSourceLine(line: number) {
+    if (!isVisible('center') || !editorRef.current) {
+      pendingSourceLine.current = line;
+      setMaximized(compactLayout ? 'center' : null);
+      setMobileView('editor');
+      return;
+    }
+    if (compactLayout && mobileView !== 'editor') {
+      setMobileView('editor');
+      requestAnimationFrame(() => jumpToLine(line));
+      return;
+    }
+    jumpToLine(line);
+  }
+
   function handleSourceJump(info: SourceJump) {
     // Exact line numbers (markdown source-map, SyncTeX PDF clicks) jump directly.
     if (info.line) {
-      jumpToLine(info.line);
+      openSourceLine(info.line);
       return;
     }
     // LaTeX / Typst previews render transformed text: fuzzy-match the
@@ -1416,7 +1459,7 @@ export default function App() {
       const part = needle.slice(0, len).toLowerCase();
       const idx = lines.findIndex((l) => l.toLowerCase().includes(part));
       if (idx >= 0) {
-        jumpToLine(idx + 1);
+        openSourceLine(idx + 1);
         return;
       }
     }
@@ -1459,10 +1502,7 @@ export default function App() {
         group: 'AI',
         label: `Edit selection (lines ${selection.startLine}-${selection.endLine}) with AI`,
         icon: 'sparkles',
-        run: () => {
-          setHidden((h) => ({ ...h, left: false }));
-          setMobileView('chat');
-        },
+        run: () => showSidebar('ai'),
       });
     }
     for (const f of files) {
@@ -1486,27 +1526,32 @@ export default function App() {
       { id: 'mode-md', group: 'Document', label: 'Switch to Markdown', icon: 'fileText', run: () => switchMode('markdown') },
       { id: 'mode-tex', group: 'Document', label: 'Switch to LaTeX', icon: 'book', run: () => switchMode('latex') },
       { id: 'mode-typ', group: 'Document', label: 'Switch to Typst', icon: 'bolt', run: () => switchMode('typst') },
-      { id: 'theme', group: 'View', label: `Theme: switch to ${theme === 'dark' ? 'light' : 'dark'}`, icon: theme === 'dark' ? 'sun' : 'moon', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
+      { id: 'theme', group: 'Settings', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, icon: theme === 'dark' ? 'sun' : 'moon', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
       { id: 'recompile', group: 'Document', label: 'Recompile document (Ctrl+Enter)', icon: 'bolt', run: triggerRecompile },
       ...(undoAction
         ? [{ id: 'undo-ai', group: 'Document', label: `Undo last AI action: ${undoAction.summary}`, icon: 'undo' as const, run: undoLastAiAction }]
         : []),
-      { id: 'tab-files', group: 'View', label: `${sidebarTab === 'files' ? 'Close' : 'Open'} project files drawer`, icon: 'files', run: () => toggleSidebar('files') },
-      { id: 'tab-ai', group: 'View', label: `${sidebarTab === 'ai' ? 'Close' : 'Open'} AI assistant drawer`, icon: 'sparkles', run: () => toggleSidebar('ai') },
-      { id: 'tab-outline', group: 'View', label: `${sidebarTab === 'outline' ? 'Close' : 'Open'} document outline`, icon: 'list', run: () => toggleSidebar('outline') },
+      { id: 'tab-files', group: 'View', label: 'Open project files', icon: 'files', run: () => showSidebar('files') },
+      { id: 'tab-ai', group: 'View', label: 'Open AI Assistant', icon: 'sparkles', run: () => showSidebar('ai') },
+      { id: 'tab-outline', group: 'View', label: 'Open document outline', icon: 'list', run: () => showSidebar('outline') },
+      { id: 'tab-references', group: 'View', label: 'Open references', icon: 'book', run: () => showSidebar('references') },
       { id: 'layout-split', group: 'Layout', label: 'Split view (Editor + Preview)', icon: 'layoutSplit', run: () => applyPreset('split') },
       { id: 'layout-editor', group: 'Layout', label: 'Focus editor (Code only)', icon: 'layoutCenter', run: () => applyPreset('editor') },
       { id: 'layout-preview', group: 'Layout', label: 'Focus preview', icon: 'layoutRight', run: () => applyPreset('preview') },
     );
     acts.push(
-      { id: 'open-keys', group: 'Open', label: 'API keys (BYOK vault)', icon: 'key', run: () => setShowByok(true) },
-      { id: 'open-mcp', group: 'Open', label: 'Connections · AI clients and MCP servers', icon: 'plug', run: () => setConnectionPanel('connections') },
-      { id: 'open-cloud', group: 'Open', label: 'Cloud sync', icon: 'cloud', run: () => setConnectionPanel('cloud') },
-      { id: 'open-gh', group: 'Open', label: 'GitHub sync', icon: 'github', run: () => setShowGithub(true) },
-      { id: 'open-history', group: 'Open', label: 'Version history', icon: 'history', run: () => setShowHistory(true) },
-      { id: 'open-cite', group: 'Open', label: 'Citation manager', icon: 'book', run: () => setShowCitations(true) },
-      { id: 'open-review', group: 'Open', label: 'Autonomous Document Review Agent', icon: 'fileText', run: () => setShowReview(true) },
-      { id: 'open-keys2', group: 'Open', label: 'Keyboard shortcuts', icon: 'keyboard', run: () => setShowShortcuts(true) },
+      { id: 'open-project', group: 'Project', label: 'New, import, or browse templates', icon: 'plus', run: () => setShowHub(true) },
+      { id: 'open-history', group: 'Project', label: 'Version history', icon: 'history', run: () => setShowHistory(true) },
+      { id: 'open-assets', group: 'Files', label: 'Images and attachments', icon: 'image', run: () => setShowAssets(true) },
+      { id: 'open-cite', group: 'References', label: 'Manage citations', icon: 'book', run: () => setShowCitations(true) },
+      { id: 'open-review', group: 'Assistant', label: 'Review document', icon: 'fileText', run: () => setShowReview(true) },
+      { id: 'open-settings', group: 'Settings', label: 'Open workspace settings', keywords: 'preferences LaTeX compiler appearance', icon: 'settings', run: () => showSidebar('settings') },
+      { id: 'open-keys', group: 'Settings', label: 'AI providers and API keys (BYOK vault)', icon: 'key', run: () => setShowByok(true) },
+      { id: 'ai-completion', group: 'Settings', label: `${aiComplete ? 'Disable' : 'Enable'} inline AI completion`, icon: 'wand', run: () => setAiCompleteEnabled(!aiComplete) },
+      { id: 'open-mcp', group: 'Settings', label: 'Connections · AI clients and MCP servers', icon: 'plug', run: () => setConnectionPanel('connections') },
+      { id: 'open-cloud', group: 'Settings', label: 'Cloud sync', icon: 'cloud', run: () => setConnectionPanel('cloud') },
+      { id: 'open-gh', group: 'Settings', label: 'GitHub sync', icon: 'github', run: () => setShowGithub(true) },
+      { id: 'open-keys2', group: 'Settings', label: 'Keyboard shortcuts', icon: 'keyboard', run: () => setShowShortcuts(true) },
     );
     const ex: Array<{ kind: ExportKind; label: string }> = [
       { kind: 'pdf', label: 'Export PDF (print)' },
@@ -1516,7 +1561,7 @@ export default function App() {
       { kind: 'typ', label: 'Export Typst (.typ)' },
       { kind: 'html', label: 'Export styled HTML' },
       { kind: 'txt', label: 'Export plain text' },
-      { kind: 'zip', label: `Export project ZIP (${files.length} files)` },
+      { kind: 'zip', label: `Download project backup ZIP (${files.length} files)` },
     ];
     for (const e of ex) {
       acts.push({
@@ -1528,49 +1573,56 @@ export default function App() {
       });
     }
     if (live) {
-      acts.push({ id: 'invite', group: 'Live', label: 'Copy invite link', icon: 'link', run: copyInvite });
-      acts.push({ id: 'leave', group: 'Live', label: `Leave room ${live.room}`, icon: 'logout', run: leaveLive });
+      acts.push({ id: 'invite', group: 'Share', label: 'Copy invite link', icon: 'link', run: copyInvite });
+      acts.push({ id: 'leave', group: 'Share', label: `Leave room ${live.room}`, icon: 'logout', run: leaveLive });
     } else {
-      acts.push({ id: 'golive', group: 'Live', label: 'Start live collaboration…', icon: 'plug', run: () => { setLiveError(null); setShowLive(true); } });
+      acts.push({ id: 'golive', group: 'Share', label: 'Start live collaboration', icon: 'share', run: openShare });
     }
     return acts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, docMode, docContent, theme, sidebarTab, toggleSidebar, triggerRecompile, live, maximized, hidden, selection, applyTemplateToActive, switchMode, undoAction, undoLastAiAction]);
+  }, [files, activeId, docMode, docContent, theme, showSidebar, triggerRecompile, live, maximized, hidden, selection, applyTemplateToActive, switchMode, undoAction, undoLastAiAction, aiComplete, setAiCompleteEnabled, openShare]);
 
   return (
     <ProjectContext.Provider value={runtime}><div className="app">
       <header className="toolbar">
-        <div className="brand">
-          <span className="brand-mark"><Icon name="bolt" size={13} /></span>
-          <span className="brand-name">Dexter Write</span>
-        </div>
-        <div className="active-doc-badge" title="Active document and format">
-          <Icon name="fileText" size={13} />
-          <span>{active?.name ?? 'document'}</span>
-          <div className="seg" style={{ marginLeft: 4 }}>
-            <button className={docMode === 'markdown' ? 'active' : ''} onClick={() => switchMode('markdown')} title="Markdown">MD</button>
-            <button className={docMode === 'latex' ? 'active' : ''} onClick={() => switchMode('latex')} title="LaTeX">LaTeX</button>
-            <button className={docMode === 'typst' ? 'active' : ''} onClick={() => switchMode('typst')} title="Typst">Typst</button>
+        <div className="toolbar-project">
+          <div className="brand">
+            <span className="brand-mark"><Icon name="bolt" size={13} /></span>
+            <span className="brand-name">Dexter Write</span>
           </div>
+          <ToolbarMenu label="Project" actions={[
+            { label: 'New, import, or browse templates', icon: 'plus', run: () => setShowHub(true) },
+            { label: 'Version history', icon: 'history', run: () => setShowHistory(true) },
+            { label: 'Download backup ZIP', icon: 'download', run: () => { void runExport('zip'); } },
+          ]} />
+        </div>
+        <div className="active-doc-badge">
+          <Icon name="fileText" size={13} />
+          <span title={active?.name}>{active?.name ?? 'Document'}</span>
+          <select className="document-format" value={docMode} onChange={(event) => switchMode(event.target.value as DocMode)} aria-label="Document format">
+            <option value="markdown">Markdown</option>
+            <option value="latex">LaTeX</option>
+            <option value="typst">Typst</option>
+          </select>
         </div>
         <div className="spacer" />
         <div className="seg" role="group" aria-label="Layout view">
           <button
-            className={maximized === 'center' ? 'active' : ''}
+            aria-pressed={maximized === 'center'}
             onClick={() => applyPreset('editor')}
             title="Code editor only"
           >
-            Code
+            Editor
           </button>
           <button
-            className={maximized === null ? 'active' : ''}
+            aria-pressed={maximized === null}
             onClick={() => applyPreset('split')}
             title="Split view (Code + Preview)"
           >
             Split
           </button>
           <button
-            className={maximized === 'right' ? 'active' : ''}
+            aria-pressed={maximized === 'right'}
             onClick={() => applyPreset('preview')}
             title="Preview only"
           >
@@ -1578,18 +1630,10 @@ export default function App() {
           </button>
         </div>
         <div className="seg view-switch" role="group" aria-label="Mobile view">
-          <button className={mobileView === 'editor' ? 'active' : ''} onClick={() => showMobileView('editor')} title="Editor">Editor</button>
-          <button className={mobileView === 'preview' ? 'active' : ''} onClick={() => showMobileView('preview')} title="Preview">Preview</button>
-          <button className={mobileView === 'chat' ? 'active' : ''} onClick={() => showMobileView('chat')} title="Project panel">Panel</button>
+          <button aria-pressed={mobileView === 'editor'} onClick={() => showMobileView('editor')}>Editor</button>
+          <button aria-pressed={mobileView === 'preview'} onClick={() => showMobileView('preview')}>Preview</button>
+          <button aria-pressed={mobileView === 'chat'} onClick={() => showMobileView('chat')} title="Sidebar panel">Panel</button>
         </div>
-        {!isVisible('right') && (
-          <button className="btn xs btn-recompile" onClick={triggerRecompile} title="Recompile document (Ctrl+Enter)">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-            <span>Recompile</span>
-          </button>
-        )}
         <div className="spacer" />
         <div className="tb-group">
           <select
@@ -1613,21 +1657,12 @@ export default function App() {
             <option value="txt">Plain text</option>
             <option value="zip">Project .zip ({files.length} files)</option>
           </select>
-          {live ? (
-            <>
-              <span className="live-badge" title={peers.map((p) => p.name).join(', ') || 'Connecting…'}>
-                <span className="live-dot" />{live.room} · {peers.length || 1}
-              </span>
-              <button className="btn xs" onClick={copyInvite} title="Copy invite link">
-                <Icon name="link" size={14} /><span className="btn-label optional">Invite</span>
-              </button>
-              <button className="btn xs danger" onClick={leaveLive} title="Leave live session">
-                <Icon name="logout" size={14} /><span className="btn-label optional">Leave</span>
-              </button>
-            </>
-          ) : (
-            <button className="btn xs ghost icon-btn tb-live" onClick={() => { setLivePrefill({ room: '', password: '' }); setLiveError(null); setShowLive(true); }} title="Real-time P2P collaboration" aria-label="Start live collaboration">
-              <Icon name="plug" size={14} />
+          {live ? <ToolbarMenu label="Share" icon="share" alignEnd actions={[
+            { label: 'Copy invite link', icon: 'link', run: copyInvite },
+            { label: 'Leave live session', icon: 'logout', run: leaveLive, danger: true },
+          ]} /> : (
+            <button type="button" className="btn xs" onClick={openShare} title="Share project" aria-label="Share">
+              <Icon name="share" size={14} /><span className="btn-label optional">Share</span>
             </button>
           )}
           {undoAction && (
@@ -1635,207 +1670,146 @@ export default function App() {
               className="btn xs tb-undo"
               onClick={undoLastAiAction}
               title={`Undo last AI action: ${undoAction.summary}`}
+              aria-label="Undo AI"
             >
               <Icon name="undo" size={14} /><span className="btn-label optional">Undo AI</span>
             </button>
           )}
-          <button className="btn xs icon-btn tb-theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Toggle theme">
-            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
-          </button>
-          <button className="btn xs" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)">
+          <button className="btn xs" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+K)" aria-label="Command palette">
             <Icon name="command" size={14} /><span className="btn-label optional">Ctrl+K</span>
           </button>
         </div>
       </header>
 
       <main className="panes" data-view={mobileView}>
-        {/* Activity Bar Dock on Far Left */}
-        <aside className="activity-bar" aria-label="Primary sidebar tools">
-          <button className="act-btn" onClick={() => setShowHub(true)} title="Create, import, templates and backup" aria-label="Project start"><Icon name="plus" size={17} /></button>
-          <button className="act-btn" onClick={() => setShowAssets(true)} title="Images and attachments" aria-label="Images and attachments"><Icon name="image" size={17} /></button>
-          <button
-            className={`act-btn ${sidebarTab === 'files' ? 'active' : ''}`}
-            onClick={() => openToolPanel('files')}
-            title="Project Files"
-            aria-label="Project Files"
-          >
-            <Icon name="files" size={17} />
+        <nav className="activity-bar" aria-label="Workspace navigation">
+          <button type="button" className="act-btn" aria-expanded={filesOpen} aria-controls="workspace-sidebar" onClick={() => filesOpen && sidebarTab === 'files' ? hideSidebar() : showSidebar('files')}>
+            <Icon name="files" size={17} /><span>Files</span>
           </button>
-          <button
-            className={`act-btn ${sidebarTab === 'ai' ? 'active' : ''}`}
-            onClick={() => openToolPanel('ai')}
-            title="AI Assistant"
-            aria-label="AI Assistant"
-          >
-            <Icon name="sparkles" size={17} />
+          <button type="button" className="act-btn" aria-expanded={sidebarOpen && sidebarTab === 'ai'} aria-controls="workspace-sidebar" onClick={() => sidebarOpen && sidebarTab === 'ai' ? hideSidebar() : showSidebar('ai')}>
+            <Icon name="sparkles" size={17} /><span>Assistant</span>
           </button>
-          <button
-            className={`act-btn ${sidebarTab === 'outline' ? 'active' : ''}`}
-            onClick={() => openToolPanel('outline')}
-            title="Document Outline"
-            aria-label="Document Outline"
-          >
-            <Icon name="list" size={17} />
+          <button type="button" className="act-btn act-settings" aria-expanded={sidebarOpen && sidebarTab === 'settings'} aria-controls="workspace-sidebar" onClick={() => sidebarOpen && sidebarTab === 'settings' ? hideSidebar() : showSidebar('settings')}>
+            <Icon name="settings" size={17} /><span>Settings</span>
           </button>
+        </nav>
 
-          <div className="act-spacer" />
-
-          <button
-            className="act-btn"
-            onClick={() => setShowReview(true)}
-            title="Autonomous Document Review Agent"
-            aria-label="Document Review"
-          >
-            <Icon name="fileText" size={16} />
-          </button>
-          <button
-            className="act-btn"
-            onClick={() => setShowHistory(true)}
-            title="Version History & Snapshots"
-            aria-label="Version History"
-          >
-            <Icon name="history" size={16} />
-          </button>
-          <button
-            className="act-btn"
-            onClick={() => setShowCitations(true)}
-            title={`Citations${citations.length > 0 ? ` (${citations.length})` : ''}`}
-            aria-label="Citations"
-          >
-            <Icon name="book" size={16} />
-          </button>
-          <button
-            className="act-btn"
-            onClick={() => setShowGithub(true)}
-            title="GitHub Sync"
-            aria-label="GitHub Sync"
-          >
-            <Icon name="github" size={16} />
-          </button>
-          <button
-            className="act-btn"
-            onClick={() => setConnectionPanel('cloud')}
-            title="Cloud sync"
-            aria-label="Cloud sync"
-          >
-            <Icon name="cloud" size={16} />
-          </button>
-          <button
-            className="act-btn"
-            onClick={() => setConnectionPanel('connections')}
-            title="Connections"
-            aria-label="Connections"
-          >
-            <Icon name="plug" size={16} />
-          </button>
-          <button
-            className="act-btn"
-            onClick={() => setShowByok(true)}
-            title={`AI & Vault Settings (${resolveProvider(provider).label})`}
-            aria-label="AI Settings"
-          >
-            <Icon name="key" size={16} />
-          </button>
-        </aside>
-
-        {/* Collapsible Left Drawer (Files / AI / Outline) */}
-        {(
-          <section className="pane left" style={{ ...(maximized ? { flex: 1 } : { width: `${leftPct}%` }), display: sidebarTab !== null && isVisible('left') ? undefined : 'none' }}>
-            {sidebarTab === 'files' && (
-              <div className="sidebar-drawer filetree-drawer">
-                <div className="pane-head">
-                  <span className="pane-title">Project Files ({files.length})</span>
-                  <span className="pane-actions">
-                    <button className="btn xs ghost icon-btn" onClick={() => toggleSidebar('files')} title="Collapse sidebar">
-                      <Icon name="chevronsLeft" size={13} />
-                    </button>
-                  </span>
-                </div>
-                <div className="filetree-content" style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
-                  <ProjectFileTree files={files} activeId={activeId} onSelect={setActiveId} onRename={renameDocument} onDelete={(id) => { const file = filesRef.current.find((f) => f.id === id); if (!file) return; void askConfirm({ title: `Delete ${file.name}?`, message: 'This removes the file from the project. Download a backup first if you need it.', confirmLabel: 'Delete file', danger: true }).then((ok) => { if (ok) removeFile(id); }); }} />
-                </div>
-                <div className="file-add">
-                  <input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') addFile(); }}
-                    placeholder="new-filename"
-                    aria-label="New file name"
-                  />
-                  <select value={newMode} onChange={(e) => setNewMode(e.target.value as DocMode)} aria-label="New file type">
-                    <option value="markdown">.md</option>
-                    <option value="latex">.tex</option>
-                    <option value="typst">.typ</option>
-                  </select>
-                  <button className="btn xs primary icon-btn" onClick={addFile} title="New file" aria-label="New file">
-                    <Icon name="plus" size={13} />
-                  </button>
-                </div>
+        <section
+          id="workspace-sidebar"
+          aria-label={sidebarTab === 'ai' ? 'Assistant' : sidebarTab === 'settings' ? 'Settings' : 'Project files'}
+          className="pane left"
+          style={{ ...(maximized ? { flex: 1 } : { width: `${leftPct}%` }), display: sidebarOpen ? undefined : 'none' }}
+        >
+          <div className="pane-head">
+            <span className="pane-title">{sidebarTab === 'ai' ? 'Assistant' : sidebarTab === 'settings' ? 'Settings' : 'Project files'}</span>
+            <span className="pane-actions">
+              {sidebarTab === 'ai' && <span className="muted small hide-sm">{resolveProvider(provider).label}</span>}
+              <button type="button" className="btn xs ghost icon-btn" onClick={hideSidebar} title="Collapse sidebar" aria-label="Collapse sidebar">
+                <Icon name="chevronsLeft" size={13} />
+              </button>
+            </span>
+          </div>
+          {sidebarTab !== null && sidebarTab !== 'ai' && sidebarTab !== 'settings' && (
+            <div className="sidebar-drawer filetree-drawer">
+              <div className="seg file-section-switch" role="group" aria-label="Project files view">
+                {FILE_VIEWS.map(({ id, label }) => (
+                  <button key={id} type="button" aria-pressed={sidebarTab === id} onClick={() => setSidebarTab(id)}>{label}</button>
+                ))}
               </div>
-            )}
-
-            {(
-              <div className="sidebar-drawer ai-drawer" style={{ display: sidebarTab === 'ai' ? undefined : 'none' }}>
-                <div className="pane-head">
-                  <span className="pane-title">AI Assistant</span>
-                  <span className="pane-actions">
-                    <span className="muted small hide-sm">{resolveProvider(provider).label}</span>
-                    <button className="btn xs ghost icon-btn" onClick={() => toggleSidebar('ai')} title="Collapse sidebar">
-                      <Icon name="chevronsLeft" size={13} />
+              {sidebarTab === 'files' && (
+                <>
+                  <div className="sidebar-section-actions">
+                    <button type="button" className="btn xs ghost" onClick={() => setShowAssets(true)}>
+                      <Icon name="image" size={14} /> Images and attachments
                     </button>
-                  </span>
-                </div>
-                <AiPlayground
-                  docContent={docContent}
-                  setDocContent={setDocContent}
-                  docMode={docMode}
-                  fileName={active?.name ?? ''}
-                  fileId={active?.id}
-                  provider={provider}
-                  apiKey={apiKey}
-                  model={model}
-                  baseUrl={baseUrl}
-                  selection={selection}
-                  clearSelection={() => setSelection(null)}
-                  editorRef={editorRef}
-                  servers={servers}
-                  theme={theme}
-                  files={fileAccess}
-                  sharedAssets={assets.filter((a) => sharedAssetIds.includes(a.id))}
-                  onConsumeSharedAssets={() => setSharedAssetIds([])}
-                  onApplyWorkspace={applyAiWorkspace}
-                  onOpenReview={() => setShowReview(true)}
-                />
-              </div>
-            )}
-
-            {sidebarTab === 'outline' && (
-              <div className="sidebar-drawer outline-drawer">
-                <div className="pane-head">
-                  <span className="pane-title">Outline ({outline.length})</span>
-                  <span className="pane-actions">
-                    <button className="btn xs ghost icon-btn" onClick={() => toggleSidebar('outline')} title="Collapse sidebar">
-                      <Icon name="chevronsLeft" size={13} />
+                  </div>
+                  <div className="filetree-content">
+                    <ProjectFileTree files={files} activeId={activeId} onSelect={(id) => { setActiveId(id); if (compactLayout) showMobileView('editor'); }} onRename={renameDocument} onDelete={(id) => { const file = filesRef.current.find((f) => f.id === id); if (!file) return; void askConfirm({ title: `Delete ${file.name}?`, message: 'This removes the file from the project. Download a backup first if you need it.', confirmLabel: 'Delete file', danger: true }).then((ok) => { if (ok) removeFile(id); }); }} />
+                  </div>
+                  <div className="file-add">
+                    <input
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addFile(); }}
+                      placeholder="New file name"
+                      aria-label="New file name"
+                    />
+                    <select value={newMode} onChange={(e) => setNewMode(e.target.value as DocMode)} aria-label="New file type">
+                      <option value="markdown">.md</option>
+                      <option value="latex">.tex</option>
+                      <option value="typst">.typ</option>
+                    </select>
+                    <button type="button" className="btn xs primary icon-btn" onClick={addFile} title="Add named file" aria-label="Add named file">
+                      <Icon name="plus" size={13} />
                     </button>
-                  </span>
-                </div>
-                <nav className="toc" aria-label="Document outline">
-                  {outline.length === 0 && <span className="muted small" style={{ padding: '12px' }}>No headings found in document</span>}
-                  {outline.map((o, i) => (
+                  </div>
+                </>
+              )}
+              {sidebarTab === 'outline' && (
+                <nav className="toc sidebar-outline" aria-label="Document outline">
+                  {outline.length === 0 && <p className="muted small">This document has no headings yet.</p>}
+                  {outline.map((item, index) => (
                     <button
-                      key={i}
-                      className={`toc-item l${Math.min(3, o.level)}`}
-                      onClick={() => jumpToLine(o.line)}
-                      title={`Jump to line ${o.line}`}
+                      key={index}
+                      type="button"
+                      className={`toc-item l${Math.min(3, item.level)}`}
+                      onClick={() => openSourceLine(item.line)}
+                      title={`Jump to line ${item.line}`}
                     >
-                      {o.title}
+                      {item.title}
                     </button>
                   ))}
                 </nav>
-              </div>
-            )}
-          </section>
-        )}
+              )}
+              {sidebarTab === 'references' && (
+                <div className="sidebar-references">
+                  <p className="muted small">{citations.length === 0 ? 'Add citations to build a bibliography for this project.' : `${citations.length} saved citation${citations.length === 1 ? '' : 's'}`}</p>
+                  <button type="button" className="btn xs" onClick={() => setShowCitations(true)}>
+                    <Icon name="book" size={14} /> Manage citations
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="sidebar-drawer ai-drawer" style={{ display: sidebarTab === 'ai' ? undefined : 'none' }}>
+            <AiPlayground
+              docContent={docContent}
+              setDocContent={setDocContent}
+              docMode={docMode}
+              fileName={active?.name ?? ''}
+              fileId={active?.id}
+              provider={provider}
+              apiKey={apiKey}
+              model={model}
+              baseUrl={baseUrl}
+              selection={selection}
+              clearSelection={() => setSelection(null)}
+              editorRef={editorRef}
+              servers={servers}
+              theme={theme}
+              files={fileAccess}
+              sharedAssets={assets.filter((a) => sharedAssetIds.includes(a.id))}
+              onConsumeSharedAssets={() => setSharedAssetIds([])}
+              onApplyWorkspace={applyAiWorkspace}
+              onOpenReview={() => setShowReview(true)}
+            />
+          </div>
+          {sidebarTab === 'settings' && (
+            <WorkspaceSettings
+              theme={theme}
+              onTheme={setTheme}
+              aiCompletion={aiComplete}
+              onAiCompletion={setAiCompleteEnabled}
+              provider={resolveProvider(provider).label}
+              onProviders={() => setShowByok(true)}
+              onConnections={() => setConnectionPanel('connections')}
+              onCloud={() => setConnectionPanel('cloud')}
+              onGitHub={() => setShowGithub(true)}
+              onShortcuts={() => setShowShortcuts(true)}
+            />
+          )}
+        </section>
 
         {/* Divider when left drawer is visible */}
         {maximized === null && sidebarTab !== null && isVisible('left') && (
@@ -1904,6 +1878,11 @@ export default function App() {
                 mode={docMode}
                 theme={theme}
                 onChange={setDocContent}
+                onReady={() => {
+                  const line = pendingSourceLine.current;
+                  pendingSourceLine.current = null;
+                  if (line !== null) jumpToLine(line);
+                }}
                 onSelection={(text, startLine, endLine) => setSelection(text ? { text, startLine, endLine } : null)}
                 editorRef={editorRef}
                 collab={live && active ? { session: live, fileId: active.id } : null}
@@ -1943,52 +1922,18 @@ export default function App() {
       </main>
 
       <footer className="statusbar">
-        <span className="stat" title={active?.name}>{active?.name}</span>
-        <button className="stat stat-btn status-project" onClick={() => setShowHub(true)} title="Create, import, templates and backup">
-          <Icon name="plus" size={11} /> Project
-        </button>
         <span className="stat status-validation">{validationStatus}</span>
         <span className="stat status-words" title={`${stats.chars} characters · ${stats.lines} lines · ~${stats.readingTimeMin} min read`}>{stats.words} words</span>
-        <span className={`stat status-save${saveState === 'error' ? ' danger-text' : ''}`} title="Autosaved to browser storage" aria-live="polite">
-          <Icon name={saveState === 'error' ? 'x' : 'check'} size={11} /> {saveState === 'error' ? `Save failed: ${saveError}` : saveState === 'saving' ? 'Saving…' : 'Saved'}{saveState === 'saved' && lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+        <span className={`stat status-save${saveState === 'error' ? ' danger-text' : ''}`} title={saveState === 'error' ? saveError : 'Autosaved to browser storage'} aria-live="polite">
+          <Icon name={saveState === 'error' ? 'alert' : saveState === 'saving' ? 'refresh' : 'check'} size={11} /> {saveState === 'error' ? `Save failed: ${saveError}` : saveState === 'saving' ? 'Saving…' : 'Saved'}{saveState === 'saved' && lastSaved ? ` ${new Date(lastSaved).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
         </span>
         <span className="spacer" />
-        <button
-          className={`stat stat-btn status-ai${aiComplete ? ' on' : ''}`}
-          onClick={() => setAiCompleteEnabled(
-            !aiComplete,
-            aiComplete ? 'AI completion off' : 'AI completion on — pause while typing, then Tab to accept',
-          )}
-          title={aiComplete
-            ? 'AI ghost-text completion is ON — click to turn off'
-            : 'AI ghost-text completion is OFF — click to turn on (spends one API call per typing pause)'}
-          aria-pressed={aiComplete}
-        >
-          <Icon name="wand" size={11} /> AI complete {aiComplete ? 'on' : 'off'}
-        </button>
         {live && (
-          <span className="stat" title={peers.map((p) => p.name).join(', ')}>
-            <span className="peers">
-              {peers.slice(0, 4).map((p) => (
-                <span key={p.clientId} className="peer" style={{ borderColor: p.color }} title={p.self ? `${p.name} (you)` : p.name}>
-                  <i style={{ background: p.color }} />
-                </span>
-              ))}
-              {live.room}
-            </span>
+          <span className="stat status-live" title={peers.map((peer) => peer.name).join(', ') || 'Connecting…'}>
+            <span className="live-dot" /> Live · {live.room} · {peers.length || 1}
           </span>
         )}
-        <span className={`stat status-bridge${mcpBridgeStatus === 'live' ? ' on' : ''}`}>
-          <Icon name="plug" size={11} /> Bridge {mcpBridgeStatus === 'connecting' ? 'connecting' : mcpBridgeStatus}
-        </span>
-        <span className="stat hide-mobile">{files.length} files</span>
-        {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
-        <span className="stat hide-mobile">{resolveProvider(provider).label}:{model}</span>
-        <span className="stat status-key">{apiKey ? 'Key saved' : !resolveProvider(provider).needsKey ? 'Local mode' : 'No key'}</span>
-        <span className="stat status-online" title={online ? 'Online' : 'Offline — local mode'}>
-          <span className={`offline-dot${online ? '' : ' off'}`} />
-          {online ? 'Online' : 'Offline'}
-        </span>
+        {!online && <span className="stat status-online" title="Offline mode"><span className="offline-dot off" /> Offline</span>}
       </footer>
 
       {showByok && (
@@ -2124,7 +2069,7 @@ export default function App() {
         </div>
       )}
       {showAssets && <AssetLibraryModal onClose={() => setShowAssets(false)} onUpload={uploadImages} onInsert={insertImage} onRename={renameImage} onDelete={async (asset) => { await removeAsset(asset.id); setAssets((prev) => prev.filter((a) => a.id !== asset.id)); setSharedAssetIds((prev) => prev.filter((id) => id !== asset.id)); }} shared={sharedAssetIds} onShare={setSharedAssetIds} />}
-      {showHub && <ProjectHubModal onClose={closeHub} onCreate={createDocument} onImport={importReviewed} onAI={() => { closeHub(); setSidebarTab('ai'); }} onAssets={() => { closeHub(); setShowAssets(true); }} onBackup={() => runExport('zip')} onValidate={validateCurrentProject} />}
+      {showHub && <ProjectHubModal onClose={closeHub} onCreate={createDocument} onImport={importReviewed} onValidate={validateCurrentProject} />}
       {externalApplied && (
         <ExternalAgentBanner
           count={externalApplied.count}

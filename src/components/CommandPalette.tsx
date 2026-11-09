@@ -6,6 +6,7 @@ export interface PaletteAction {
   group: string;
   label: string;
   hint?: string;
+  keywords?: string;
   icon: IconName;
   run: () => void;
 }
@@ -27,7 +28,7 @@ export default function CommandPalette({ open, onClose, actions }: { open: boole
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return actions.slice(0, 60);
-    return actions.filter((a) => `${a.group} ${a.label}`.toLowerCase().includes(q)).slice(0, 60);
+    return actions.filter((a) => `${a.group} ${a.label} ${a.keywords ?? ''}`.toLowerCase().includes(q)).slice(0, 60);
   }, [actions, query ]);
 
   useEffect(() => setIndex(0), [query ]);

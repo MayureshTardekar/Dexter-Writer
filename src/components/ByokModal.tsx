@@ -178,8 +178,8 @@ export default function ByokModal({ provider, setProvider, model, setModel, base
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="BYOK settings">
-        <ModalHeader icon="key" title="BYOK Security Vault" category="Security" sub="Keys are AES-GCM encrypted in localStorage. Requests go direct to providers — no middleman." onClose={onClose} />
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="AI providers">
+        <ModalHeader icon="key" title="AI providers" sub="Choose a model and manage the API keys stored in your encrypted vault." onClose={onClose} />
         <div className="modal-body">
           <label>Provider</label>
           <select value={provider} onChange={(e) => onSelectProvider(e.target.value)}>

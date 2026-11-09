@@ -19,7 +19,7 @@ export default function LiveModal({ initialRoom, initialPassword, initialName, b
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Live collaboration">
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Live collaboration">
         <ModalHeader
           icon="plug"
           title="Live Collaboration"
