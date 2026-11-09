@@ -1723,6 +1723,7 @@ ul.resume-item-list li {
   box-shadow: var(--border-hi);
 }
 .cloud-card h3 { margin: 0 0 4px; font-size: 13px; }
+.connections-sections { flex-wrap: wrap; margin-bottom: 14px; }
 .cloud-code {
   margin: 9px 0 0; padding: 9px 10px; border-radius: var(--radius);
   background: var(--bg); border: 1px solid var(--border-soft);

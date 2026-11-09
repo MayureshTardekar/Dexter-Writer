@@ -17,7 +17,7 @@ import {
   type CloudProject,
   type CloudRevision,
 } from '../lib/cloud/cloudStore';
-import { cloudConfigured, mcpEndpoint } from '../lib/cloud/supabase';
+import { cloudConfigured } from '../lib/cloud/supabase';
 import { askConfirm } from '../lib/dialog';
 import Icon from './icons';
 import ModalHeader from './ModalHeader';
@@ -145,17 +145,6 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
     });
   };
 
-  const copyMcpUrl = async () => {
-    const url = mcpEndpoint();
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setNotice('Remote MCP URL copied. Paste it into Claude or ChatGPT as a custom connector.');
-    } catch (e) {
-      setError(`Could not copy: ${errorMessage(e)}`);
-    }
-  };
-
   const projectName = (projectId: string): string =>
     projects.find((project) => project.id === projectId)?.name ?? projectId.slice(0, 8);
 
@@ -171,19 +160,18 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Cloud and remote MCP">
+      <div className="modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Cloud sync">
         <ModalHeader
           icon="cloud"
-          title="Cloud & Remote MCP"
-          category="Connected"
-          sub="Sync this project to Supabase so Claude and ChatGPT can read and edit it directly, with revision undo."
+          title="Cloud sync"
+          sub="Sync projects and attachments to Supabase and restore revisions."
           onClose={onClose}
         />
         <div className="modal-body">
           <div className="cloud-hero">
             <span className="cloud-hero-icon"><Icon name="cloud" size={18} /></span>
             <div style={{ minWidth: 0 }}>
-              <h3>One connector, any MCP client</h3>
+              <h3>Cloud projects</h3>
               <p className="muted small" style={{ margin: 0 }}>
                 The browser keeps working offline. Cloud sync only moves project files and images into your own Supabase project.
               </p>
@@ -194,7 +182,7 @@ export default function CloudPanel({ files, assets, activeName, localProjectId, 
             <div className="cloud-card">
               <h3>Enable cloud sync</h3>
               <p className="muted small" style={{ margin: 0 }}>
-                Create a free Supabase project, run <code>supabase/migrations/0001_init.sql</code>, then add these to <code>.env</code> and rebuild.
+                Create a Supabase project, apply the migrations in <code>supabase/migrations</code>, then add these to <code>.env</code> and rebuild.
               </p>
               <pre className="cloud-code">{`VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key`}</pre>
@@ -247,26 +235,13 @@ on conflict (github_username) do nothing;`}</pre>
                 <>
                   <div className="cloud-card">
                     <div className="row" style={{ justifyContent: 'space-between', marginTop: 0 }}>
-                      <h3>Remote MCP endpoint</h3>
-                      <button className="btn xs" onClick={copyMcpUrl} disabled={!mcpEndpoint()}>
-                        Copy URL
-                      </button>
-                    </div>
-                    <p className="muted small" style={{ margin: 0 }}>
-                      Add this URL as a custom connector in Claude or ChatGPT. Edits apply immediately and stay undoable here.
-                    </p>
-                    <pre className="cloud-code">{mcpEndpoint() ?? 'Cloud sync is not configured in this build.'}</pre>
-                  </div>
-
-                  <div className="cloud-card">
-                    <div className="row" style={{ justifyContent: 'space-between', marginTop: 0 }}>
-                      <h3>Recent MCP edits</h3>
+                      <h3>MCP edits and undo</h3>
                       <button className="btn xs ghost" onClick={() => void run('refresh-edits', refresh)} disabled={busy !== null}>
                         <Icon name="refresh" size={13} /> Refresh
                       </button>
                     </div>
                     {revisions.length === 0 ? (
-                      <div className="cloud-empty">No MCP edits yet. Ask Claude or ChatGPT to edit a file; changes apply immediately.</div>
+                      <div className="cloud-empty">No MCP edits yet. Edits from authorized clients appear here as soon as they apply.</div>
                     ) : (
                       <div className="cloud-pending">
                         {revisions.map((revision) => (

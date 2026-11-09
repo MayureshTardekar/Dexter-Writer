@@ -16,15 +16,14 @@ import App from './App.tsx'
 import OAuthConsent from './components/OAuthConsent.tsx'
 import { registerServiceWorker } from './lib/pwa.ts'
 
-registerServiceWorker()
+const isConsentRoute = /\/oauth\/consent\/?$/.test(window.location.pathname)
+if (!isConsentRoute) registerServiceWorker()
 
 // The editor and worker come from this app, so editing does not need a CDN.
 ;(globalThis as typeof globalThis & { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 }
 loader.config({ monaco })
-
-const isConsentRoute = /\/oauth\/consent\/?$/.test(window.location.pathname)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

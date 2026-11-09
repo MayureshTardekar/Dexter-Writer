@@ -14,7 +14,7 @@ import EditorPane from './components/EditorPane';
 import PreviewPane, { type SourceJump } from './components/PreviewPane';
 import AiPlayground, { type SelectionCtx } from './components/AiPlayground';
 import ByokModal from './components/ByokModal';
-import McpManager from './components/McpManager';
+import ConnectionsModal from './components/ConnectionsModal';
 import LiveModal from './components/LiveModal';
 import GithubPanel from './components/GithubPanel';
 import ShortcutsModal from './components/ShortcutsModal';
@@ -126,7 +126,10 @@ export default function App() {
   const [assetUrls, setAssetUrls] = useState<Record<string, string>>({});
   const [sharedAssetIds, setSharedAssetIds] = useState<string[]>([]);
   const [showAssets, setShowAssets] = useState(false);
-  const [showHub, setShowHub] = useState(() => localStorage.getItem('dexter-write:started') !== '1');
+  const [showHub, setShowHub] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return localStorage.getItem('dexter-write:started') !== '1' && !params.has('cloud-sync') && !params.has('connections');
+  });
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saving');
   const [saveError, setSaveError] = useState('');
   const [validationStatus, setValidationStatus] = useState('Draft');
@@ -140,8 +143,22 @@ export default function App() {
   // which matters on a free tier. See AI_AGENT_ROADMAP.md §10.
   const [aiComplete, setAiComplete] = useState(() => localStorage.getItem('dexter-write:ai-complete') === '1');
   const [showByok, setShowByok] = useState(false);
-  const [showMcp, setShowMcp] = useState(false);
-  const [showCloud, setShowCloud] = useState(false);
+  const [connectionPanel, setConnectionPanel] = useState<'connections' | 'cloud' | 'cloud-from-connections' | null>(
+    () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('connections')) return 'connections';
+      return params.has('cloud-sync') ? 'cloud' : null;
+    },
+  );
+  const closeConnectionPanel = useCallback(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('cloud-sync') || url.searchParams.has('connections')) {
+      url.searchParams.delete('cloud-sync');
+      url.searchParams.delete('connections');
+      window.history.replaceState(null, '', url);
+    }
+    setConnectionPanel((panel) => panel === 'cloud-from-connections' ? 'connections' : null);
+  }, []);
   const [mcpBridgeEnabled, setMcpBridgeEnabled] = useState(() => {
     let stored: string | null = null;
     try { stored = localStorage.getItem('dexter-write:mcp-bridge-enabled'); } catch { stored = null; }
@@ -602,12 +619,11 @@ export default function App() {
     else if (showShortcuts) setShowShortcuts(false);
     else if (showGithub) setShowGithub(false);
     else if (showLive) setShowLive(false);
-    else if (showCloud) setShowCloud(false);
-    else if (showMcp) setShowMcp(false);
+    else if (connectionPanel) closeConnectionPanel();
     else if (showByok) setShowByok(false);
     else if (aiFixProposal) setAiFixProposal(null);
     else if (paletteOpen) setPaletteOpen(false);
-  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, showCloud, showMcp, showByok, aiFixProposal, paletteOpen]);
+  }, [pendingImport, showCitations, showHistory, showShortcuts, showGithub, showLive, connectionPanel, closeConnectionPanel, showByok, aiFixProposal, paletteOpen]);
 
   // Global shortcuts: palette, save-guard, Esc-to-close.
   useEffect(() => {
@@ -1484,7 +1500,8 @@ export default function App() {
     );
     acts.push(
       { id: 'open-keys', group: 'Open', label: 'API keys (BYOK vault)', icon: 'key', run: () => setShowByok(true) },
-      { id: 'open-mcp', group: 'Open', label: 'External MCP servers', icon: 'plug', run: () => setShowMcp(true) },
+      { id: 'open-mcp', group: 'Open', label: 'Connections · AI clients and MCP servers', icon: 'plug', run: () => setConnectionPanel('connections') },
+      { id: 'open-cloud', group: 'Open', label: 'Cloud sync', icon: 'cloud', run: () => setConnectionPanel('cloud') },
       { id: 'open-gh', group: 'Open', label: 'GitHub sync', icon: 'github', run: () => setShowGithub(true) },
       { id: 'open-history', group: 'Open', label: 'Version history', icon: 'history', run: () => setShowHistory(true) },
       { id: 'open-cite', group: 'Open', label: 'Citation manager', icon: 'book', run: () => setShowCitations(true) },
@@ -1697,17 +1714,17 @@ export default function App() {
           </button>
           <button
             className="act-btn"
-            onClick={() => setShowCloud(true)}
-            title="Cloud sync & remote MCP"
-            aria-label="Cloud sync and remote MCP"
+            onClick={() => setConnectionPanel('cloud')}
+            title="Cloud sync"
+            aria-label="Cloud sync"
           >
             <Icon name="cloud" size={16} />
           </button>
           <button
             className="act-btn"
-            onClick={() => setShowMcp(true)}
-            title={connectedCount > 0 ? `MCP Servers (${connectedCount} active)` : "External MCP Servers"}
-            aria-label="External MCP"
+            onClick={() => setConnectionPanel('connections')}
+            title="Connections"
+            aria-label="Connections"
           >
             <Icon name="plug" size={16} />
           </button>
@@ -1961,21 +1978,9 @@ export default function App() {
             </span>
           </span>
         )}
-        <button
-          className={`stat stat-btn status-bridge${mcpBridgeStatus === 'live' ? ' on' : ''}`}
-          onClick={() => setMcpBridgeEnabled((value) => !value)}
-          title={!mcpBridgeEnabled
-            ? 'Local MCP bridge is off — click to let Claude Desktop or Cursor read this project'
-            : mcpBridgeStatus === 'live'
-              ? 'Local MCP bridge is connected — external agents can read the active document, outline, and file list'
-              : mcpBridgeStatus === 'offline'
-                ? 'No dexter-mcp daemon detected on 127.0.0.1:3088 — run npm run mcp'
-                : 'Connecting to the local dexter-mcp daemon…'}
-          aria-pressed={mcpBridgeEnabled}
-          aria-label="Local MCP bridge"
-        >
+        <span className={`stat status-bridge${mcpBridgeStatus === 'live' ? ' on' : ''}`}>
           <Icon name="plug" size={11} /> Bridge {mcpBridgeStatus === 'connecting' ? 'connecting' : mcpBridgeStatus}
-        </button>
+        </span>
         <span className="stat hide-mobile">{files.length} files</span>
         {connectedCount > 0 && <span className="stat hide-mobile">MCP {connectedCount}</span>}
         <span className="stat hide-mobile">{resolveProvider(provider).label}:{model}</span>
@@ -2017,25 +2022,30 @@ export default function App() {
           onClose={() => setAiFixProposal(null)}
         />
       )}
-      {showMcp && (
-        <McpManager
+      {connectionPanel === 'connections' && (
+        <ConnectionsModal
+          cloudProjectId={cloudProjectId}
           servers={servers}
           setServers={setServers}
           bridgeEnabled={mcpBridgeEnabled}
           bridgeStatus={mcpBridgeStatus}
           onToggleBridge={() => setMcpBridgeEnabled((enabled) => !enabled)}
-          onClose={() => setShowMcp(false)}
+          onOpenCloud={() => setConnectionPanel('cloud-from-connections')}
+          onClose={closeConnectionPanel}
         />
       )}
-      {showCloud && (
+      {(connectionPanel === 'cloud' || connectionPanel === 'cloud-from-connections') && (
         <CloudPanel
           files={files}
           assets={assets}
           activeName={active?.name ?? ''}
           localProjectId={projectId}
           onLoad={applyCloudProject}
-          onLink={linkCloudProject}
-          onClose={() => setShowCloud(false)}
+          onLink={(id) => {
+            linkCloudProject(id);
+            if (connectionPanel === 'cloud-from-connections') closeConnectionPanel();
+          }}
+          onClose={closeConnectionPanel}
         />
       )}
       {showLive && !live && (
